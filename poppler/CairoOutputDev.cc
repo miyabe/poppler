@@ -603,7 +603,7 @@ void CairoOutputDev::updateFont(GfxState *state) {
   font_face = currentFont->getFontFace();
   cairo_set_font_face (cairo, font_face);
 
-  use_show_text_glyphs = state->getFont()->hasToUnicodeCMap() &&
+  use_show_text_glyphs = // FIXME miyabe state->getFont()->hasToUnicodeCMap() &&
     cairo_surface_has_show_text_glyphs (cairo_get_target (cairo));
  
   double fontSize = state->getFontSize();
@@ -2710,7 +2710,7 @@ void CairoOutputDev::drawImage(GfxState *state, Object *ref, Stream *str,
 
   cairo_surface_t *scaled_surface;
 
-  scaled_surface = downscaleSurface (image);
+  // FIXME miyabe scaled_surface = downscaleSurface (image);
   if (scaled_surface) {
     if (cairo_surface_status (scaled_surface))
       goto cleanup;
