@@ -168,6 +168,7 @@ _ft_new_face_uncached (FT_Library lib,
 		       const char *filename,
 		       char *font_data,
 		       int font_data_len,
+		       int wmode,
 		       FT_Face *face_out,
 		       cairo_font_face_t **font_face_out)
 {
@@ -207,6 +208,7 @@ static struct _ft_face_data {
   int fd;
   unsigned long hash;
   size_t size;
+  int wmode;
   unsigned char *bytes;
 
   FT_Library lib;
@@ -232,6 +234,8 @@ _ft_face_data_equal (struct _ft_face_data *a, struct _ft_face_data *b)
   if (a->lib != b->lib)
     return gFalse;
   if (a->size != b->size)
+    return gFalse;
+  if (a->wmode != b->wmode)
     return gFalse;
   if (a->hash != b->hash)
     return gFalse;
@@ -267,6 +271,7 @@ _ft_new_face (FT_Library lib,
 	      const char *filename,
 	      char *font_data,
 	      int font_data_len,
+	      int wmode,
 	      FT_Face *face_out,
 	      cairo_font_face_t **font_face_out)
 {
@@ -280,11 +285,11 @@ _ft_new_face (FT_Library lib,
     /* if we fail to mmap the file, just pass it to FreeType instead */
     tmpl.fd = open (filename, O_RDONLY);
     if (tmpl.fd == -1)
-      return _ft_new_face_uncached (lib, filename, font_data, font_data_len, face_out, font_face_out);
+      return _ft_new_face_uncached (lib, filename, font_data, font_data_len, wmode, face_out, font_face_out);
 
     if (fstat (tmpl.fd, &st) == -1) {
       close (tmpl.fd);
-      return _ft_new_face_uncached (lib, filename, font_data, font_data_len, face_out, font_face_out);
+      return _ft_new_face_uncached (lib, filename, font_data, font_data_len, wmode, face_out, font_face_out);
     }
 
     tmpl.bytes = (unsigned char *) mmap (NULL, st.st_size,
@@ -292,13 +297,14 @@ _ft_new_face (FT_Library lib,
 					 tmpl.fd, 0);
     if (tmpl.bytes == MAP_FAILED) {
       close (tmpl.fd);
-      return _ft_new_face_uncached (lib, filename, font_data, font_data_len, face_out, font_face_out);
+      return _ft_new_face_uncached (lib, filename, font_data, font_data_len, wmode, face_out, font_face_out);
     }
     tmpl.size = st.st_size;
   } else {
     tmpl.bytes = (unsigned char*) font_data;
     tmpl.size = font_data_len;
   }
+  tmpl.wmode = wmode;
 
   /* check to see if this is a duplicate of any of the currently open fonts */
   tmpl.lib = lib;
@@ -451,7 +457,7 @@ CairoFreeTypeFont *CairoFreeTypeFont::create(GfxFont *gfxFont, XRef *xref,
   case fontType1:
   case fontType1C:
   case fontType1COT:
-    if (! _ft_new_face (lib, fileNameC, font_data, font_data_len, &face, &font_face)) {
+    if (! _ft_new_face (lib, fileNameC, font_data, font_data_len, gfxFont->getWMode(), &face, &font_face)) {
       error(-1, "could not create type1 face");
       goto err2;
     }
@@ -507,7 +513,7 @@ CairoFreeTypeFont *CairoFreeTypeFont::create(GfxFont *gfxFont, XRef *xref,
       codeToGIDLen = 256;
     }
     delete ff;
-    if (! _ft_new_face (lib, fileNameC, font_data, font_data_len, &face, &font_face)) {
+    if (! _ft_new_face (lib, fileNameC, font_data, font_data_len, gfxFont->getWMode(), &face, &font_face)) {
       error(-1, "could not create truetype face\n");
       goto err2;
     }
@@ -532,7 +538,7 @@ CairoFreeTypeFont *CairoFreeTypeFont::create(GfxFont *gfxFont, XRef *xref,
       }
     }
 
-    if (! _ft_new_face (lib, fileNameC, font_data, font_data_len, &face, &font_face)) {
+    if (! _ft_new_face (lib, fileNameC, font_data, font_data_len, gfxFont->getWMode(), &face, &font_face)) {
       gfree(codeToGID);
       codeToGID = NULL;
       error(-1, "could not create cid face\n");
