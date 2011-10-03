@@ -604,7 +604,7 @@ static GooString *getImageFileName(GooString *outputFileName, int numDigits, int
   char buf[10];
   GooString *imageName = new GooString(outputFileName);
   if (!singleFile) {
-    snprintf(buf, sizeof(buf), "-%0*d", numDigits, page);
+    snprintf(buf, sizeof(buf), "_%0*d", numDigits, page);
     imageName->appendf(buf);
   }
   if (png)
@@ -907,6 +907,7 @@ int main(int argc, char *argv[]) {
   if (sz != 0)
     crop_w = crop_h = sz;
   pg_num_len = numberOfCharacters(doc->getNumPages());
+  if (pg_num_len < 4) pg_num_len = 4;
   for (pg = firstPage; pg <= lastPage; ++pg) {
     if (printOnlyEven && pg % 2 == 0) continue;
     if (printOnlyOdd && pg % 2 == 1) continue;
@@ -931,9 +932,16 @@ int main(int argc, char *argv[]) {
     } else {
       if (x_scaleTo != 0) {
         x_resolution = (72.0 * x_scaleTo) / pg_w;
+        y_resolution = resolution = x_resolution;
       }
       if (y_scaleTo != 0) {
         y_resolution = (72.0 * y_scaleTo) / pg_h;
+        if (y_resolution > x_resolution) {
+        	y_resolution = resolution = x_resolution;
+        }
+        else {
+        	x_resolution = resolution = y_resolution;
+        }
       }
     }
     if ((doc->getPageRotate(pg) == 90) || (doc->getPageRotate(pg) == 270)) {

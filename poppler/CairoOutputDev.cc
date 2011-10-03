@@ -415,33 +415,34 @@ void CairoOutputDev::updateMiterLimit(GfxState *state) {
 void CairoOutputDev::updateLineWidth(GfxState *state) {
   LOG(printf ("line width: %f\n", state->getLineWidth()));
   adjusted_stroke_width = gFalse;
-  if (state->getLineWidth() == 0.0) {
-    /* find out how big pixels (device unit) are in the x and y directions
-     * choose the smaller of the two as our line width */
-    double x = 1.0, y = 1.0;
-    if (printing) {
-      // assume printer pixel size is 1/600 inch
-      x = 72.0/600;
-      y = 72.0/600;
-    }
-    cairo_device_to_user_distance(cairo, &x, &y);
-    cairo_set_line_width (cairo, MIN(fabs(x),fabs(y)));
-  } else {
+//  miyabe FIXME if (state->getLineWidth() == 0.0) {
+//    /* find out how big pixels (device unit) are in the x and y directions
+//     * choose the smaller of the two as our line width */
+//    double x = 1.0, y = 1.0;
+//    if (printing) {
+//      // assume printer pixel size is 1/600 inch
+//      x = 72.0/600;
+//      y = 72.0/600;
+//    }
+//    cairo_device_to_user_distance(cairo, &x, &y);
+//    cairo_set_line_width (cairo, MIN(fabs(x),fabs(y)));
+//  } else
+  {
     double width = state->getLineWidth();
-    if (stroke_adjust && !printing) {
-      double x, y;
-      x = y = width;
-
-      /* find out line width in device units */
-      cairo_user_to_device_distance(cairo, &x, &y);
-      if (x <= 1.0 && y <= 1.0) {
-	/* adjust width to at least one device pixel */
-	x = y = 1.0;
-	cairo_device_to_user_distance(cairo, &x, &y);
-	width = MIN(fabs(x),fabs(y));
-	adjusted_stroke_width = gTrue;
-      }
-    }
+// miyabe FIXME   if (stroke_adjust && !printing) {
+//      double x, y;
+//      x = y = width;
+//
+//      /* find out line width in device units */
+//      cairo_user_to_device_distance(cairo, &x, &y);
+//     if (x <= 1.0 && y <= 1.0) {
+//	/* adjust width to at least one device pixel */
+//	x = y = 1.0;
+//	cairo_device_to_user_distance(cairo, &x, &y);
+//	width = MIN(fabs(x),fabs(y));
+//	adjusted_stroke_width = gTrue;
+//      }
+//    }
     cairo_set_line_width (cairo, width);
   }
   if (cairo_shape)
@@ -1661,6 +1662,10 @@ void CairoOutputDev::getScaledSize(int  orig_width,
 				   int *scaledHeight) {
   cairo_matrix_t matrix;
   cairo_get_matrix(cairo, &matrix);
+  // miyabe FIXME
+  //cairo_matrix_scale(&matrix, 4.44, 4.44); //320dpi
+  //cairo_matrix_scale(&matrix, 2.78, 2.78); //200dpi
+  cairo_matrix_scale(&matrix, 2.22, 2.22); //160dpi
 
   double xScale;
   double yScale;
@@ -1897,12 +1902,12 @@ void CairoOutputDev::drawImageMaskRegular(GfxState *state, Object *ref, Stream *
 
   if (state->getFillColorSpace()->getMode() == csPattern) {
     mask = cairo_pattern_reference (pattern);
-  } else if (!printing) {
-    cairo_save (cairo);
-    cairo_rectangle (cairo, 0., 0., 1., 1.);
-    cairo_clip (cairo);
-    cairo_mask (cairo, pattern);
-    cairo_restore (cairo);
+// miyabe FIXME } else if (!printing) {
+//    cairo_save (cairo);
+//    cairo_rectangle (cairo, 0., 0., 1., 1.);
+//    cairo_clip (cairo);
+//    cairo_mask (cairo, pattern);
+//    cairo_restore (cairo);
   } else {
     cairo_mask (cairo, pattern);
   }
@@ -1910,10 +1915,11 @@ void CairoOutputDev::drawImageMaskRegular(GfxState *state, Object *ref, Stream *
   if (cairo_shape) {
     cairo_save (cairo_shape);
     cairo_set_source (cairo_shape, pattern);
-    if (!printing) {
-      cairo_rectangle (cairo_shape, 0., 0., 1., 1.);
-      cairo_fill (cairo_shape);
-    } else {
+// miyabe FIXME   if (!printing) {
+//      cairo_rectangle (cairo_shape, 0., 0., 1., 1.);
+//      cairo_fill (cairo_shape);
+//    } else
+    {
       cairo_mask (cairo_shape, pattern);
     }
     cairo_restore (cairo_shape);
@@ -2337,14 +2343,15 @@ void CairoOutputDev::drawMaskedImage(GfxState *state, Object *ref,
     goto cleanup;
   }
 
-  if (!printing) {
-    cairo_save (cairo);
-    cairo_set_source (cairo, pattern);
-    cairo_rectangle (cairo, 0., 0., 1., 1.);
-    cairo_clip (cairo);
-    cairo_mask (cairo, maskPattern);
-    cairo_restore (cairo);
-  } else {
+// miyabe FIXME if (!printing) {
+//    cairo_save (cairo);
+//    cairo_set_source (cairo, pattern);
+//    cairo_rectangle (cairo, 0., 0., 1., 1.);
+//    cairo_clip (cairo);
+//    cairo_mask (cairo, maskPattern);
+//    cairo_restore (cairo);
+//  } else
+  {
     cairo_set_source (cairo, pattern);
     cairo_mask (cairo, maskPattern);
   }
@@ -2352,10 +2359,11 @@ void CairoOutputDev::drawMaskedImage(GfxState *state, Object *ref,
   if (cairo_shape) {
     cairo_save (cairo_shape);
     cairo_set_source (cairo_shape, pattern);
-    if (!printing) {
-      cairo_rectangle (cairo_shape, 0., 0., 1., 1.);
-      cairo_fill (cairo_shape);
-    } else {
+// miyabe FIXME   if (!printing) {
+//      cairo_rectangle (cairo_shape, 0., 0., 1., 1.);
+//      cairo_fill (cairo_shape);
+//    } else
+    {
       cairo_mask (cairo_shape, pattern);
     }
     cairo_restore (cairo_shape);
@@ -2496,23 +2504,23 @@ void CairoOutputDev::drawSoftMaskedImage(GfxState *state, Object *ref, Stream *s
     cairo_save (cairo);
 
   cairo_set_source (cairo, pattern);
-  if (!printing) {
-    cairo_rectangle (cairo, 0., 0.,
-		     MIN (width, maskWidth) / (double)width,
-		     MIN (height, maskHeight) / (double)height);
-    cairo_clip (cairo);
-  }
+// miyabe FIXME if (!printing) {
+//    cairo_rectangle (cairo, 0., 0.,
+//		     MIN (width, maskWidth) / (double)width,
+//		     MIN (height, maskHeight) / (double)height);
+//    cairo_clip (cairo);
+//  }
   cairo_mask (cairo, maskPattern);
 
   if (fill_opacity != 1.0) {
     cairo_pop_group_to_source (cairo);
     cairo_save (cairo);
-    if (!printing) {
-      cairo_rectangle (cairo, 0., 0.,
-		       MIN (width, maskWidth) / (double)width,
-		       MIN (height, maskHeight) / (double)height);
-      cairo_clip (cairo);
-    }
+// miyabe FIXME   if (!printing) {
+//      cairo_rectangle (cairo, 0., 0.,
+//		       MIN (width, maskWidth) / (double)width,
+//		       MIN (height, maskHeight) / (double)height);
+//      cairo_clip (cairo);
+//    }
     cairo_paint_with_alpha (cairo, fill_opacity);
   }
   cairo_restore (cairo);
@@ -2520,12 +2528,13 @@ void CairoOutputDev::drawSoftMaskedImage(GfxState *state, Object *ref, Stream *s
   if (cairo_shape) {
     cairo_save (cairo_shape);
     cairo_set_source (cairo_shape, pattern);
-    if (!printing) {
-      cairo_rectangle (cairo_shape, 0., 0.,
-		       MIN (width, maskWidth) / (double)width,
-		       MIN (height, maskHeight) / (double)height);
-      cairo_fill (cairo_shape);
-    } else {
+// miyabe FIXME   if (!printing) {
+//      cairo_rectangle (cairo_shape, 0., 0.,
+//		       MIN (width, maskWidth) / (double)width,
+//		       MIN (height, maskHeight) / (double)height);
+//      cairo_fill (cairo_shape);
+//    } else
+    {
       cairo_mask (cairo_shape, pattern);
     }
     cairo_restore (cairo_shape);
@@ -2710,7 +2719,7 @@ void CairoOutputDev::drawImage(GfxState *state, Object *ref, Stream *str,
 
   cairo_surface_t *scaled_surface;
 
-  // FIXME miyabe scaled_surface = downscaleSurface (image);
+  scaled_surface = downscaleSurface (image);
   if (scaled_surface) {
     if (cairo_surface_status (scaled_surface))
       goto cleanup;
@@ -2754,10 +2763,10 @@ void CairoOutputDev::drawImage(GfxState *state, Object *ref, Stream *str,
 
   cairo_save (cairo);
   cairo_set_source (cairo, pattern);
-  if (printing)
+// miyabe FIXME if (printing)
     cairo_rectangle (cairo, 0., 0., width, height);
-  else
-    cairo_rectangle (cairo, 0., 0., 1., 1.);
+//  else
+//    cairo_rectangle (cairo, 0., 0., 1., 1.);
   if (maskPattern) {
     cairo_clip (cairo);
     cairo_mask (cairo, maskPattern);
@@ -2771,10 +2780,10 @@ void CairoOutputDev::drawImage(GfxState *state, Object *ref, Stream *str,
   if (cairo_shape) {
     cairo_save (cairo_shape);
     cairo_set_source (cairo_shape, pattern);
-    if (printing)
+// miyabe FIXME   if (printing)
       cairo_rectangle (cairo_shape, 0., 0., width, height);
-    else
-      cairo_rectangle (cairo_shape, 0., 0., 1., 1.);
+//    else
+//      cairo_rectangle (cairo_shape, 0., 0., 1., 1.);
     cairo_fill (cairo_shape);
     cairo_restore (cairo_shape);
   }
