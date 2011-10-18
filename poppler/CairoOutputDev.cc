@@ -1665,7 +1665,7 @@ void CairoOutputDev::getScaledSize(int  orig_width,
   // miyabe FIXME
   //cairo_matrix_scale(&matrix, 4.44, 4.44); //320dpi
   //cairo_matrix_scale(&matrix, 2.78, 2.78); //200dpi
-  cairo_matrix_scale(&matrix, 2.22, 2.22); //160dpi
+  //cairo_matrix_scale(&matrix, 2.22, 2.22); //160dpi
 
   double xScale;
   double yScale;
