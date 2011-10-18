@@ -410,8 +410,8 @@ int main(int argc, char *argv[]) {
         snprintf(ppmFile, PPM_FILE_SZ, "%.*s.%s",
               PPM_FILE_SZ - 32, ppmRoot, ext);
       } else {
-        snprintf(ppmFile, PPM_FILE_SZ, "%.*s-%0*d.%s",
-              PPM_FILE_SZ - 32, ppmRoot, pg_num_len, pg, ext);
+        snprintf(ppmFile, PPM_FILE_SZ, "%.*s%05d.%s",
+              PPM_FILE_SZ - 32, ppmRoot, pg, ext);
       }
       savePageSlice(doc, splashOut, pg, x, y, w, h, pg_w, pg_h, ppmFile);
     } else {
