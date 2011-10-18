@@ -309,7 +309,7 @@ SplashError SplashBitmap::writeImgFile(SplashImageFileFormat format, FILE *f, in
       break;
     #endif
     case splashFormatJpeg:
-      writer = new JpegWriter(100, false, JCS_RGB);
+      writer = new JpegWriter(90, false, JCS_RGB);
       break;
     #endif
 	
