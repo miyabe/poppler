@@ -392,9 +392,16 @@ int main(int argc, char *argv[]) {
     } else {
       if (x_scaleTo != 0) {
         x_resolution = (72.0 * x_scaleTo) / pg_w;
+        y_resolution = resolution = x_resolution;
       }
       if (y_scaleTo != 0) {
         y_resolution = (72.0 * y_scaleTo) / pg_h;
+        if (y_resolution > x_resolution) {
+        	y_resolution = resolution = x_resolution;
+        }
+        else {
+        	x_resolution = resolution = y_resolution;
+        }
       }
     }
     pg_w = pg_w * (x_resolution / 72.0);
