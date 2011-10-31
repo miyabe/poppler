@@ -1718,32 +1718,33 @@ int GfxCIDFont::getNextChar(char *s, int len, CharCode *code,
     *uLen = 0;
   }
 
-  // horizontal
-  if (cMap->getWMode() == 0) {
-    w = widths.defWidth;
-    h = vx = vy = 0;
-    if (widths.nExceps > 0 && cid >= widths.exceps[0].first) {
-      a = 0;
-      b = widths.nExceps;
-      // invariant: widths.exceps[a].first <= cid < widths.exceps[b].first
-      while (b - a > 1) {
+  w = widths.defWidth;
+  h = vx = vy = 0;
+  if (widths.nExceps > 0 && cid >= widths.exceps[0].first) {
+    a = 0;
+    b = widths.nExceps;
+    // invariant: widths.exceps[a].first <= cid < widths.exceps[b].first
+    while (b - a > 1) {
 	m = (a + b) / 2;
 	if (widths.exceps[m].first <= cid) {
 	  a = m;
 	} else {
 	  b = m;
 	}
-      }
-      if (cid <= widths.exceps[a].last) {
-	w = widths.exceps[a].width;
-      }
     }
+    if (cid <= widths.exceps[a].last) {
+	w = widths.exceps[a].width;
+    }
+  }
+  // horizontal
+  if (cMap->getWMode() == 0) {
+    h = vx = vy = 0;
 
   // vertical
   } else {
+    vx = w / 2;
     w = 0;
     h = widths.defHeight;
-    vx = widths.defWidth / 2;
     vy = widths.defVY;
     if (widths.nExcepsV > 0 && cid >= widths.excepsV[0].first) {
       a = 0;
