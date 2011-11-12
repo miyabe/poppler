@@ -2076,7 +2076,7 @@ void AnnotLink::initialize(XRef *xrefA, Catalog *catalog, Dict *dict) {
 void AnnotLink::draw(Gfx *gfx, GBool printing) {
   Object obj;
 
-  if (!isVisible (printing))
+  // FIXME miyabe if (!isVisible (printing))
     return;
 
   // draw the appearance stream
