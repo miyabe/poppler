@@ -17,7 +17,7 @@
 // Copyright (C) 2009 Stefan Thomas <thomas@eload24.com>
 // Copyright (C) 2010 Adrian Johnson <ajohnson@redneon.com>
 // Copyright (C) 2010 Harry Roberts <harry.roberts@midnight-labs.org>
-// Copyright (C) 2010 Christian Feuers�nger <cfeuersaenger@googlemail.com>
+// Copyright (C) 2010 Christian Feuers�ｽnger <cfeuersaenger@googlemail.com>
 // Copyright (C) 2010 William Bader <williambader@hotmail.com>
 // Copyright (C) 2011 Thomas Freitag <Thomas.Freitag@alfa.de>
 //
@@ -294,6 +294,7 @@ SplashError SplashBitmap::writeImgFile(SplashImageFileFormat format, char *fileN
 SplashError SplashBitmap::writeImgFile(SplashImageFileFormat format, FILE *f, int hDPI, int vDPI, const char *compressionString) {
   ImgWriter *writer;
 	SplashError e;
+	int q = 98;
   
   switch (format) {
     #ifdef ENABLE_LIBPNG
@@ -305,11 +306,13 @@ SplashError SplashBitmap::writeImgFile(SplashImageFileFormat format, FILE *f, in
     #ifdef ENABLE_LIBJPEG
     #ifdef SPLASH_CMYK
     case splashFormatJpegCMYK:
-      writer = new JpegWriter(JCS_CMYK);
+      sscanf(compressionString, "q=%d", &q);
+      writer = new JpegWriter(q, false, JCS_CMYK);
       break;
     #endif
     case splashFormatJpeg:
-      writer = new JpegWriter(98, false, JCS_RGB);
+      sscanf(compressionString, "q=%d", &q);
+      writer = new JpegWriter(q, false, JCS_RGB);
       break;
     #endif
 	

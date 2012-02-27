@@ -83,6 +83,7 @@ static char vectorAntialiasStr[16] = "";
 static char ownerPassword[33] = "";
 static char userPassword[33] = "";
 static char TiffCompressionStr[16] = "";
+static char JpegCompressionStr[16] = "";
 static GBool quiet = gFalse;
 static GBool printVersion = gFalse;
 static GBool printHelp = gFalse;
@@ -136,6 +137,8 @@ static const ArgDesc argDesc[] = {
 #if ENABLE_LIBJPEG
   {"-jpeg",   argFlag,     &jpeg,           0,
    "generate a JPEG file"},
+  {"-jpegcompression", argString, JpegCompressionStr, sizeof(JpegCompressionStr),
+   "set JPEG compression quality: \"q=[0-100]\""},
 #if SPLASH_CMYK
   {"-jpegcmyk",argFlag,    &jpegcmyk,       0,
    "generate a CMYK JPEG file"},
@@ -203,9 +206,9 @@ static void savePageSlice(PDFDoc *doc,
     if (png) {
       bitmap->writeImgFile(splashFormatPng, ppmFile, x_resolution, y_resolution);
     } else if (jpeg) {
-      bitmap->writeImgFile(splashFormatJpeg, ppmFile, x_resolution, y_resolution);
+      bitmap->writeImgFile(splashFormatJpeg, ppmFile, x_resolution, y_resolution, JpegCompressionStr);
     } else if (jpegcmyk) {
-      bitmap->writeImgFile(splashFormatJpegCMYK, ppmFile, x_resolution, y_resolution);
+      bitmap->writeImgFile(splashFormatJpegCMYK, ppmFile, x_resolution, y_resolution, JpegCompressionStr);
     } else if (tiff) {
       bitmap->writeImgFile(splashFormatTiff, ppmFile, x_resolution, y_resolution, TiffCompressionStr);
     } else {
@@ -219,7 +222,7 @@ static void savePageSlice(PDFDoc *doc,
     if (png) {
       bitmap->writeImgFile(splashFormatPng, stdout, x_resolution, y_resolution);
     } else if (jpeg) {
-      bitmap->writeImgFile(splashFormatJpeg, stdout, x_resolution, y_resolution);
+      bitmap->writeImgFile(splashFormatJpeg, stdout, x_resolution, y_resolution, JpegCompressionStr);
     } else if (tiff) {
       bitmap->writeImgFile(splashFormatTiff, stdout, x_resolution, y_resolution, TiffCompressionStr);
     } else {
