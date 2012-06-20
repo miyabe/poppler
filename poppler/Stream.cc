@@ -571,7 +571,7 @@ GBool StreamPredictor::getNextLine() {
   int curPred;
   Guchar upLeftBuf[gfxColorMaxComps * 2 + 1];
   int left, up, upLeft, p, pa, pb, pc;
-  int c;
+  int c, d;
   Gulong inBuf, outBuf, bitMask;
   int inBits, outBits;
   int i, j, k, kk;
@@ -645,11 +645,20 @@ GBool StreamPredictor::getNextLine() {
   // apply TIFF (component) predictor
   if (predictor == 2) {
     if (nBits == 1) {
+      // FIXED by miyabe
       inBuf = predLine[pixBytes - 1];
-      for (i = pixBytes; i < rowBytes; i += 8) {
-	// 1-bit add is just xor
-	inBuf = (inBuf << 8) | predLine[i];
-	predLine[i] ^= inBuf >> nComps;
+      d = 0;
+      for (i = pixBytes - 1; i < rowBytes; i++) {
+	  c = predLine[i];
+	  predLine[i] = 0;
+      predLine[i] |= (Guchar)((d ^= (c >> 7) & 1) << 7);
+      predLine[i] |= (Guchar)((d ^= (c >> 6) & 1) << 6);
+      predLine[i] |= (Guchar)((d ^= (c >> 5) & 1) << 5);
+      predLine[i] |= (Guchar)((d ^= (c >> 4) & 1) << 4);
+      predLine[i] |= (Guchar)((d ^= (c >> 3) & 1) << 3);
+      predLine[i] |= (Guchar)((d ^= (c >> 2) & 1) << 2);
+      predLine[i] |= (Guchar)((d ^= (c >> 1) & 1) << 1);
+      predLine[i] |= (Guchar)(d ^= c & 1);
       }
     } else if (nBits == 8) {
       for (i = pixBytes; i < rowBytes; ++i) {

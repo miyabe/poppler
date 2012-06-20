@@ -14,7 +14,7 @@
 // Copyright (C) 2005-2011 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2005 Marco Pesenti Gritti <mpg@redhat.com>
 // Copyright (C) 2010, 2011 Thomas Freitag <Thomas.Freitag@alfa.de>
-// Copyright (C) 2010 Christian Feuersänger <cfeuersaenger@googlemail.com>
+// Copyright (C) 2010 Christian Feuersï¿½nger <cfeuersaenger@googlemail.com>
 // Copyright (C) 2011 William Bader <williambader@hotmail.com>
 //
 // To see a description of the changes please see the Changelog file that
