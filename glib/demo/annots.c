@@ -40,6 +40,7 @@ typedef struct {
     PopplerDocument *doc;
     PopplerPage     *page;
 
+    GtkWidget       *tree_view;
     GtkListStore    *model;
     GtkWidget       *annot_view;
     GtkWidget       *timer_label;
@@ -281,6 +282,28 @@ get_free_text_callout_line (PopplerAnnotFreeText *poppler_annot)
 }
 
 static void
+pgd_annots_remove_annot (GtkWidget     *button,
+                         PgdAnnotsDemo *demo)
+{
+    GtkTreeSelection *selection;
+    GtkTreeModel *model;
+    GtkTreeIter   iter;
+
+    selection = gtk_tree_view_get_selection (GTK_TREE_VIEW (demo->tree_view));
+
+    if (gtk_tree_selection_get_selected (selection, &model, &iter)) {
+        PopplerAnnot *annot;
+
+        gtk_tree_model_get (model, &iter,
+                            ANNOTS_COLUMN, &annot,
+                           -1);
+        poppler_page_remove_annot (demo->page, annot);
+        g_object_unref (annot);
+        gtk_list_store_remove (GTK_LIST_STORE (model), &iter);
+    }
+}
+
+static void
 pgd_annot_view_set_annot_markup (GtkWidget          *table,
                                  PopplerAnnotMarkup *markup,
                                  gint               *row)
@@ -289,35 +312,35 @@ pgd_annot_view_set_annot_markup (GtkWidget          *table,
     PopplerRectangle rect;
 
     text = poppler_annot_markup_get_label (markup);
-    pgd_table_add_property (GTK_TABLE (table), "<b>Label:</b>", text, row);
+    pgd_table_add_property (GTK_GRID (table), "<b>Label:</b>", text, row);
     g_free (text);
 
     if (poppler_annot_markup_has_popup (markup)) {
-	    pgd_table_add_property (GTK_TABLE (table), "<b>Popup is open:</b>",
+	    pgd_table_add_property (GTK_GRID (table), "<b>Popup is open:</b>",
 				    poppler_annot_markup_get_popup_is_open (markup) ? "Yes" : "No", row);
 
 	    poppler_annot_markup_get_popup_rectangle (markup, &rect);
 	    text = g_strdup_printf ("X1: %.2f, Y1: %.2f, X2: %.2f, Y2: %.2f",
 				    rect.x1, rect.y1, rect.x2, rect.y2);
-	    pgd_table_add_property (GTK_TABLE (table), "<b>Popup Rectangle:</b>", text, row);
+	    pgd_table_add_property (GTK_GRID (table), "<b>Popup Rectangle:</b>", text, row);
 	    g_free (text);
     }
 
     text = g_strdup_printf ("%f", poppler_annot_markup_get_opacity (markup));
-    pgd_table_add_property (GTK_TABLE (table), "<b>Opacity:</b>", text, row);
+    pgd_table_add_property (GTK_GRID (table), "<b>Opacity:</b>", text, row);
     g_free (text);
 
     text = get_markup_date (markup);
-    pgd_table_add_property (GTK_TABLE (table), "<b>Date:</b>", text, row);
+    pgd_table_add_property (GTK_GRID (table), "<b>Date:</b>", text, row);
     g_free (text);
 
     text = poppler_annot_markup_get_subject (markup);
-    pgd_table_add_property (GTK_TABLE (table), "<b>Subject:</b>", text, row);
+    pgd_table_add_property (GTK_GRID (table), "<b>Subject:</b>", text, row);
     g_free (text);
 
-    pgd_table_add_property (GTK_TABLE (table), "<b>Reply To:</b>", get_markup_reply_to (markup), row);
+    pgd_table_add_property (GTK_GRID (table), "<b>Reply To:</b>", get_markup_reply_to (markup), row);
 
-    pgd_table_add_property (GTK_TABLE (table), "<b>External Data:</b>", get_markup_external_data (markup), row);
+    pgd_table_add_property (GTK_GRID (table), "<b>External Data:</b>", get_markup_external_data (markup), row);
 }
 
 static void
@@ -327,14 +350,14 @@ pgd_annot_view_set_annot_text (GtkWidget        *table,
 {
     gchar *text;
 
-    pgd_table_add_property (GTK_TABLE (table), "<b>Is open:</b>",
+    pgd_table_add_property (GTK_GRID (table), "<b>Is open:</b>",
                             poppler_annot_text_get_is_open (annot) ? "Yes" : "No", row);
 
     text = poppler_annot_text_get_icon (annot);
-    pgd_table_add_property (GTK_TABLE (table), "<b>Icon:</b>", text, row);
+    pgd_table_add_property (GTK_GRID (table), "<b>Icon:</b>", text, row);
     g_free (text);
 
-    pgd_table_add_property (GTK_TABLE (table), "<b>State:</b>", get_text_state (annot), row);
+    pgd_table_add_property (GTK_GRID (table), "<b>State:</b>", get_text_state (annot), row);
 }
 
 static void
@@ -344,10 +367,10 @@ pgd_annot_view_set_annot_free_text (GtkWidget            *table,
 {
     gchar *text;
 
-    pgd_table_add_property (GTK_TABLE (table), "<b>Quadding:</b>", get_free_text_quadding (annot), row);
+    pgd_table_add_property (GTK_GRID (table), "<b>Quadding:</b>", get_free_text_quadding (annot), row);
 
     text = get_free_text_callout_line (annot);
-    pgd_table_add_property (GTK_TABLE (table), "<b>Callout:</b>", text, row);
+    pgd_table_add_property (GTK_GRID (table), "<b>Callout:</b>", text, row);
     g_free (text);
 }
 
@@ -408,14 +431,14 @@ pgd_annot_view_set_annot_file_attachment (GtkWidget                  *table,
     gchar *text;
 
     text = poppler_annot_file_attachment_get_name (annot);
-    pgd_table_add_property (GTK_TABLE (table), "<b>Attachment Name:</b>", text, row);
+    pgd_table_add_property (GTK_GRID (table), "<b>Attachment Name:</b>", text, row);
     g_free (text);
 
     button = gtk_button_new_with_label ("Save Attachment");
     g_signal_connect (G_OBJECT (button), "clicked",
 		      G_CALLBACK (pgd_annot_save_file_attachment_button_clicked),
 		      (gpointer)annot);
-    pgd_table_add_property_with_custom_widget (GTK_TABLE (table), "<b>File Attachment:</b>", button, row);
+    pgd_table_add_property_with_custom_widget (GTK_GRID (table), "<b>File Attachment:</b>", button, row);
     gtk_widget_show (button);
 
 }
@@ -429,12 +452,12 @@ pgd_annot_view_set_annot_movie (GtkWidget         *table,
     gchar *text;
 
     text = poppler_annot_movie_get_title (annot);
-    pgd_table_add_property (GTK_TABLE (table), "<b>Movie Title:</b>", text, row);
+    pgd_table_add_property (GTK_GRID (table), "<b>Movie Title:</b>", text, row);
     g_free (text);
 
     movie_view = pgd_movie_view_new ();
     pgd_movie_view_set_movie (movie_view, poppler_annot_movie_get_movie (annot));
-    pgd_table_add_property_with_custom_widget (GTK_TABLE (table), "<b>Movie:</b>", movie_view, row);
+    pgd_table_add_property_with_custom_widget (GTK_GRID (table), "<b>Movie:</b>", movie_view, row);
     gtk_widget_show (movie_view);
 }
 
@@ -447,44 +470,45 @@ pgd_annot_view_set_annot_screen (GtkWidget          *table,
 
     action_view = pgd_action_view_new (NULL);
     pgd_action_view_set_action (action_view, poppler_annot_screen_get_action (annot));
-    pgd_table_add_property_with_custom_widget (GTK_TABLE (table), "<b>Action:</b>", action_view, row);
+    pgd_table_add_property_with_custom_widget (GTK_GRID (table), "<b>Action:</b>", action_view, row);
     gtk_widget_show (action_view);
 }
 
 static void
-pgd_annot_view_set_annot (GtkWidget    *annot_view,
-                          PopplerAnnot *annot)
+pgd_annot_view_set_annot (PgdAnnotsDemo *demo,
+                          PopplerAnnot  *annot)
 {
     GtkWidget  *alignment;
     GtkWidget  *table;
+    GtkWidget  *button;
     GEnumValue *enum_value;
     gint        row = 0;
     gchar      *text, *warning;
     time_t      timet;
 
-    alignment = gtk_bin_get_child (GTK_BIN (annot_view));
+    alignment = gtk_bin_get_child (GTK_BIN (demo->annot_view));
     if (alignment) {
-        gtk_container_remove (GTK_CONTAINER (annot_view), alignment);
+        gtk_container_remove (GTK_CONTAINER (demo->annot_view), alignment);
     }
 
     alignment = gtk_alignment_new (0.5, 0.5, 1, 1);
     gtk_alignment_set_padding (GTK_ALIGNMENT (alignment), 5, 5, 12, 5);
-    gtk_container_add (GTK_CONTAINER (annot_view), alignment);
+    gtk_container_add (GTK_CONTAINER (demo->annot_view), alignment);
     gtk_widget_show (alignment);
 
     if (!annot)
         return;
 
-    table = gtk_table_new (10, 2, FALSE);
-    gtk_table_set_col_spacings (GTK_TABLE (table), 6);
-    gtk_table_set_row_spacings (GTK_TABLE (table), 6);
+    table = gtk_grid_new ();
+    gtk_grid_set_column_spacing (GTK_GRID (table), 6);
+    gtk_grid_set_row_spacing (GTK_GRID (table), 6);
 
     text = poppler_annot_get_contents (annot);
-    pgd_table_add_property (GTK_TABLE (table), "<b>Contents:</b>", text, &row);
+    pgd_table_add_property (GTK_GRID (table), "<b>Contents:</b>", text, &row);
     g_free (text);
 
     text = poppler_annot_get_name (annot);
-    pgd_table_add_property (GTK_TABLE (table), "<b>Name:</b>", text, &row);
+    pgd_table_add_property (GTK_GRID (table), "<b>Name:</b>", text, &row);
     g_free (text);
 
     text = poppler_annot_get_modified (annot);
@@ -492,15 +516,15 @@ pgd_annot_view_set_annot (GtkWidget    *annot_view,
 	    g_free (text);
 	    text = pgd_format_date (timet);
     }
-    pgd_table_add_property (GTK_TABLE (table), "<b>Modified:</b>", text, &row);
+    pgd_table_add_property (GTK_GRID (table), "<b>Modified:</b>", text, &row);
     g_free (text);
 
     text = g_strdup_printf ("%d", poppler_annot_get_flags (annot));
-    pgd_table_add_property (GTK_TABLE (table), "<b>Flags:</b>", text, &row);
+    pgd_table_add_property (GTK_GRID (table), "<b>Flags:</b>", text, &row);
     g_free (text);
 
     text = g_strdup_printf ("%d", poppler_annot_get_page_index (annot));
-    pgd_table_add_property (GTK_TABLE (table), "<b>Page:</b>", text, &row);
+    pgd_table_add_property (GTK_GRID (table), "<b>Page:</b>", text, &row);
     g_free (text);
 
     if (POPPLER_IS_ANNOT_MARKUP (annot))
@@ -527,6 +551,13 @@ pgd_annot_view_set_annot (GtkWidget    *annot_view,
           break;
     }
 
+    button = gtk_button_new_from_stock (GTK_STOCK_REMOVE);
+    g_signal_connect (G_OBJECT (button), "clicked",
+                      G_CALLBACK (pgd_annots_remove_annot),
+                      (gpointer) demo);
+    gtk_grid_attach (GTK_GRID (table), button, 0, row, 2, 1);
+    gtk_widget_show (button);
+
     gtk_container_add (GTK_CONTAINER (alignment), table);
     gtk_widget_show (table);
 }
@@ -540,7 +571,7 @@ pgd_annots_get_annots (GtkWidget     *button,
     GTimer      *timer;
 
     gtk_list_store_clear (demo->model);
-    pgd_annot_view_set_annot (demo->annot_view, NULL);
+    pgd_annot_view_set_annot (demo, NULL);
 
     if (demo->page) {
         g_object_unref (demo->page);
@@ -632,8 +663,10 @@ pgd_annots_selection_changed (GtkTreeSelection *treeselection,
         gtk_tree_model_get (model, &iter,
                             ANNOTS_COLUMN, &annot,
                            -1);
-        pgd_annot_view_set_annot (demo->annot_view, annot);
+        pgd_annot_view_set_annot (demo, annot);
         g_object_unref (annot);
+    } else {
+        pgd_annot_view_set_annot (demo, NULL);
     }
 }
 
@@ -666,16 +699,16 @@ pgd_annots_add_annot (GtkWidget     *button,
 
     vbox = gtk_dialog_get_content_area (GTK_DIALOG (dialog));
 
-    type_selector = gtk_combo_box_new_text ();
-    gtk_combo_box_append_text (GTK_COMBO_BOX (type_selector), "POPPLER_ANNOT_UNKNOWN");
-    gtk_combo_box_append_text (GTK_COMBO_BOX (type_selector), "POPPLER_ANNOT_TEXT");
+    type_selector = gtk_combo_box_text_new ();
+    gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (type_selector), "POPPLER_ANNOT_UNKNOWN");
+    gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (type_selector), "POPPLER_ANNOT_TEXT");
     gtk_combo_box_set_active (GTK_COMBO_BOX (type_selector), 1);
     gtk_box_pack_start (GTK_BOX (vbox), type_selector, TRUE, TRUE, 0);
     gtk_widget_show (type_selector);
 
-    hbox = gtk_hbox_new (FALSE, 6);
+    hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
 
-    rect_hbox = gtk_hbox_new (FALSE, 6);
+    rect_hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
 
     label = gtk_label_new ("x1:");
     gtk_box_pack_start (GTK_BOX (rect_hbox), label, TRUE, TRUE, 0);
@@ -688,7 +721,7 @@ pgd_annots_add_annot (GtkWidget     *button,
     gtk_box_pack_start (GTK_BOX (hbox), rect_hbox, FALSE, TRUE, 0);
     gtk_widget_show (rect_hbox);
 
-    rect_hbox = gtk_hbox_new (FALSE, 6);
+    rect_hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
 
     label = gtk_label_new ("x2:");
     gtk_box_pack_start (GTK_BOX (rect_hbox), label, TRUE, TRUE, 0);
@@ -701,7 +734,7 @@ pgd_annots_add_annot (GtkWidget     *button,
     gtk_box_pack_start (GTK_BOX (hbox), rect_hbox, FALSE, TRUE, 0);
     gtk_widget_show (rect_hbox);
 
-    rect_hbox = gtk_hbox_new (FALSE, 6);
+    rect_hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
 
     label = gtk_label_new ("y1:");
     gtk_box_pack_start (GTK_BOX (rect_hbox), label, TRUE, TRUE, 0);
@@ -714,7 +747,7 @@ pgd_annots_add_annot (GtkWidget     *button,
     gtk_box_pack_start (GTK_BOX (hbox), rect_hbox, FALSE, TRUE, 0);
     gtk_widget_show (rect_hbox);
 
-    rect_hbox = gtk_hbox_new (FALSE, 6);
+    rect_hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
 
     label = gtk_label_new ("y2:");
     gtk_box_pack_start (GTK_BOX (rect_hbox), label, TRUE, TRUE, 0);
@@ -765,9 +798,9 @@ pgd_annots_create_widget (PopplerDocument *document)
 
     n_pages = poppler_document_get_n_pages (document);
 
-    vbox = gtk_vbox_new (FALSE, 12);
+    vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
 
-    hbox = gtk_hbox_new (FALSE, 6);
+    hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
 
     label = gtk_label_new ("Page:");
     gtk_box_pack_start (GTK_BOX (hbox), label, FALSE, TRUE, 0);
@@ -809,7 +842,7 @@ pgd_annots_create_widget (PopplerDocument *document)
     gtk_box_pack_start (GTK_BOX (vbox), demo->timer_label, FALSE, TRUE, 0);
     gtk_widget_show (demo->timer_label);
 
-    hpaned = gtk_hpaned_new ();
+    hpaned = gtk_paned_new (GTK_ORIENTATION_HORIZONTAL);
 
     demo->annot_view = pgd_annot_view_new ();
 
@@ -825,6 +858,7 @@ pgd_annots_create_widget (PopplerDocument *document)
 				      G_TYPE_BOOLEAN, G_TYPE_BOOLEAN,
 				      G_TYPE_OBJECT);
     treeview = gtk_tree_view_new_with_model (GTK_TREE_MODEL (demo->model));
+    demo->tree_view = treeview;
 
     renderer = gtk_cell_renderer_text_new ();
     gtk_tree_view_insert_column_with_attributes (GTK_TREE_VIEW (treeview),

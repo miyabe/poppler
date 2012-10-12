@@ -16,13 +16,11 @@ INCLUDES =					\
 	-I$(top_srcdir)/utils			\
 	-I$(top_srcdir)/poppler			\
 	$(UTILS_CFLAGS)				\
-	$(FONTCONFIG_CFLAGS)			\
-	$(CAIRO_CFLAGS)
+	$(PDFTOCAIRO_CFLAGS)
 
 LDADD =						\
 	$(top_builddir)/poppler/libpoppler.la	\
-	$(UTILS_LIBS)				\
-	$(FONTCONFIG_LIBS)
+	$(UTILS_LIBS)
 
 if BUILD_CAIRO_OUTPUT
 
@@ -30,9 +28,14 @@ pdftocairo_SOURCES =				\
 	pdftocairo.cc				\
 	$(common)
 
+if USE_CMS
+PDFTOCAIRO_CFLAGS += $(LCMS_CFLAGS)
+PDFTOCAIRO_LIBS += $(LCMS_LIBS)
+endif
+
 pdftocairo_LDADD =				\
 	$(top_builddir)/poppler/libpoppler-cairo.la \
-	$(LDADD) $(CAIRO_LIBS)
+	$(LDADD) $(PDFTOCAIRO_LIBS)
 
 
 pdftocairo_binary = pdftocairo
@@ -44,28 +47,36 @@ endif
 AM_LDFLAGS = @auto_import_flags@
 
 bin_PROGRAMS =					\
+	pdfdetach				\
 	pdffonts				\
 	pdfimages				\
 	pdfinfo					\
 	pdftops					\
 	pdftotext				\
 	pdftohtml				\
-	pdfextract				\
-	pdfmerge				\
+	pdfseparate				\
+	pdfunite				\
 	$(pdftoppm_binary)			\
 	$(pdftocairo_binary)
 
 dist_man1_MANS =				\
+	pdfdetach.1				\
 	pdffonts.1				\
 	pdfimages.1				\
 	pdfinfo.1				\
 	pdftops.1				\
 	pdftotext.1				\
 	pdftohtml.1				\
+	pdfseparate.1				\
+	pdfunite.1				\
 	$(pdftoppm_manpage)			\
 	$(pdftocairo_manpage)
 
 common = parseargs.cc parseargs.h
+
+pdfdetach_SOURCES = 				\
+	pdfdetach.cc				\
+	$(common)
 
 pdffonts_SOURCES =				\
 	pdffonts.cc				\
@@ -104,12 +115,18 @@ pdftohtml_SOURCES =				\
 	HtmlUtils.h				\
 	$(common)
 
-pdfextract_SOURCES =				\
-	pdfextract.cc				\
+# HtmlOutputDev uses goo/PNGWriter.h that may depend on libpng header
+pdftohtml_CXXFLAGS = $(AM_CXXFLAGS)
+if BUILD_LIBPNG
+pdftohtml_CXXFLAGS += $(LIBPNG_CFLAGS)
+endif
+
+pdfseparate_SOURCES =				\
+	pdfseparate.cc				\
 	$(common)
 
-pdfmerge_SOURCES =				\
-	pdfmerge.cc				\
+pdfunite_SOURCES =				\
+	pdfunite.cc				\
 	$(common)
 
 # Yay, automake!  It should be able to figure out that it has to dist

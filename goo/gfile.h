@@ -16,7 +16,7 @@
 // under GPL version 2 or later
 //
 // Copyright (C) 2006 Kristian Høgsberg <krh@redhat.com>
-// Copyright (C) 2009, 2011 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2009, 2011, 2012 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2009 Kovid Goyal <kovid@kovidgoyal.net>
 //
 // To see a description of the changes please see the Changelog file that
@@ -27,7 +27,7 @@
 #ifndef GFILE_H
 #define GFILE_H
 
-#include "poppler/poppler-config.h"
+#include "poppler-config.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <stddef.h>
@@ -71,15 +71,12 @@ class GooString;
 
 //------------------------------------------------------------------------
 
-// Get home directory path.
-extern GooString *getHomeDir();
-
 // Get current directory.
 extern GooString *getCurrentDir();
 
 // Append a file name to a path string.  <path> may be an empty
 // string, denoting the current directory).  Returns <path>.
-extern GooString *appendToPath(GooString *path, char *fileName);
+extern GooString *appendToPath(GooString *path, const char *fileName);
 
 // Grab the path from the front of the file name.  If there is no
 // directory component in <fileName>, returns an empty string.
@@ -87,10 +84,6 @@ extern GooString *grabPath(char *fileName);
 
 // Is this an absolute path or file name?
 extern GBool isAbsolutePath(char *path);
-
-// Make this path absolute by prepending current directory (if path is
-// relative) or prepending user's directory (if path starts with '~').
-extern GooString *makePathAbsolute(GooString *path);
 
 // Get the modification time for <fileName>.  Returns 0 if there is an
 // error.
@@ -102,10 +95,20 @@ extern time_t getModTime(char *fileName);
 // should be done to the returned file pointer; the file may be
 // reopened later for reading, but not for writing.  The <mode> string
 // should be "w" or "wb".  Returns true on success.
-extern GBool openTempFile(GooString **name, FILE **f, char *mode);
+extern GBool openTempFile(GooString **name, FILE **f, const char *mode);
 
-// Execute <command>.  Returns true on success.
-extern GBool executeCommand(char *cmd);
+#ifdef WIN32
+// Convert a file name from Latin-1 to UTF-8.
+extern GooString *fileNameToUTF8(char *path);
+
+// Convert a file name from UCS-2 to UTF-8.
+extern GooString *fileNameToUTF8(wchar_t *path);
+#endif
+
+// Open a file.  On Windows, this converts the path from UTF-8 to
+// UCS-2 and calls _wfopen (if available).  On other OSes, this simply
+// calls fopen.
+extern FILE *openFile(const char *path, const char *mode);
 
 // Just like fgets, but handles Unix, Mac, and/or DOS end-of-line
 // conventions.

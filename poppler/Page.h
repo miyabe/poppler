@@ -19,6 +19,8 @@
 // Copyright (C) 2006, 2011 Carlos Garcia Campos <carlosgc@gnome.org>
 // Copyright (C) 2007 Julien Rebetez <julienr@svn.gnome.org>
 // Copyright (C) 2008 Iñigo Martínez <inigomartinez@gmail.com>
+// Copyright (C) 2012 Fabio D'Urso <fabiodurso@hotmail.it>
+// Copyright (C) 2012 Albert Astals Cid <aacid@kde.org>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -35,10 +37,10 @@
 #include "Object.h"
 
 class Dict;
+class PDFDoc;
 class XRef;
 class OutputDev;
 class Links;
-class Catalog;
 class Annots;
 class Annot;
 class Gfx;
@@ -99,9 +101,12 @@ public:
   Dict *getResourceDict()
     { return resources.isDict() ? resources.getDict() : (Dict *)NULL; }
 
+  // Clip all other boxes to the MediaBox.
+  void clipBoxes();
+
 private:
 
-  GBool readBox(Dict *dict, char *key, PDFRectangle *box);
+  GBool readBox(Dict *dict, const char *key, PDFRectangle *box);
 
   PDFRectangle mediaBox;
   PDFRectangle cropBox;
@@ -127,7 +132,7 @@ class Page {
 public:
 
   // Constructor.
-  Page(XRef *xrefA, int numA, Dict *pageDict, Ref pageRefA, PageAttrs *attrsA, Form *form);
+  Page(PDFDoc *docA, int numA, Dict *pageDict, Ref pageRefA, PageAttrs *attrsA, Form *form);
 
   // Destructor.
   ~Page();
@@ -158,6 +163,8 @@ public:
   Stream *getMetadata() { return attrs->getMetadata(); }
   Dict *getPieceInfo() { return attrs->getPieceInfo(); }
   Dict *getSeparationInfo() { return attrs->getSeparationInfo(); }
+  PDFDoc *getDoc() { return doc; }
+  Ref getRef() { return pageRef; }
 
   // Get resource dictionary.
   Dict *getResourceDict() { return attrs->getResourceDict(); }
@@ -165,13 +172,15 @@ public:
   // Get annotations array.
   Object *getAnnots(Object *obj) { return annotsObj.fetch(xref, obj); }
   // Add a new annotation to the page
-  void addAnnot(Annot *annot, Catalog *catalog);
+  void addAnnot(Annot *annot);
+  // Remove an existing annotation from the page
+  void removeAnnot(Annot *annot);
 
   // Return a list of links.
-  Links *getLinks(Catalog *catalog);
+  Links *getLinks();
 
-  // Return a list of annots. Ownership is transferred to the caller.
-  Annots *getAnnots(Catalog *catalog);
+  // Return a list of annots. It will be valid until the page is destroyed
+  Annots *getAnnots();
 
   // Get contents.
   Object *getContents(Object *obj) { return contents.fetch(xref, obj); }
@@ -184,7 +193,7 @@ public:
   Object *getTrans(Object *obj) { return trans.fetch(xref, obj); }
 
   // Get form.
-  FormPageWidgets *getFormWidgets(Catalog *catalog);
+  FormPageWidgets *getFormWidgets();
 
   // Get duration, the maximum length of time, in seconds,
   // that the page is displayed before the presentation automatically
@@ -197,16 +206,14 @@ public:
   Gfx *createGfx(OutputDev *out, double hDPI, double vDPI,
 		 int rotate, GBool useMediaBox, GBool crop,
 		 int sliceX, int sliceY, int sliceW, int sliceH,
-		 GBool printing, Catalog *catalog,
+		 GBool printing,
 		 GBool (*abortCheckCbk)(void *data),
-		 void *abortCheckCbkData,
-		 GBool (*annotDisplayDecideCbk)(Annot *annot, void *user_data),
-		 void *annotDisplayDecideCbkData);
+		 void *abortCheckCbkData);
 
   // Display a page.
   void display(OutputDev *out, double hDPI, double vDPI,
 	       int rotate, GBool useMediaBox, GBool crop,
-	       GBool printing, Catalog *catalog,
+	       GBool printing,
 	       GBool (*abortCheckCbk)(void *data) = NULL,
 	       void *abortCheckCbkData = NULL,
                GBool (*annotDisplayDecideCbk)(Annot *annot, void *user_data) = NULL,
@@ -216,7 +223,7 @@ public:
   void displaySlice(OutputDev *out, double hDPI, double vDPI,
 		    int rotate, GBool useMediaBox, GBool crop,
 		    int sliceX, int sliceY, int sliceW, int sliceH,
-		    GBool printing, Catalog *catalog,
+		    GBool printing,
 		    GBool (*abortCheckCbk)(void *data) = NULL,
 		    void *abortCheckCbkData = NULL,
                     GBool (*annotDisplayDecideCbk)(Annot *annot, void *user_data) = NULL,
@@ -229,7 +236,7 @@ public:
 	       double sliceX, double sliceY, double sliceW, double sliceH,
 	       PDFRectangle *box, GBool *crop);
 
-  void processLinks(OutputDev *out, Catalog *catalog);
+  void processLinks(OutputDev *out);
 
   // Get the page's default CTM.
   void getDefaultCTM(double *ctm, double hDPI, double vDPI,
@@ -237,6 +244,7 @@ public:
 
 private:
 
+  PDFDoc *doc;
   XRef *xref;			// the xref table for this PDF file
   Object pageObj;               // page dictionary
   Ref pageRef;                  // page reference

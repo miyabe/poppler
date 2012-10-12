@@ -11,7 +11,7 @@
 // All changes made under the Poppler project to this file are licensed
 // under GPL version 2 or later
 //
-// Copyright (C) 2011 Thomas Freitag <Thomas.Freitag@alfa.de>
+// Copyright (C) 2011, 2012 Thomas Freitag <Thomas.Freitag@alfa.de>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -87,6 +87,9 @@ public:
   void setStrokeOverprint(GBool strokeOverprintA) { strokeOverprint = strokeOverprintA; }
   void setOverprintMode(int overprintModeA) { overprintMode = overprintModeA; }
 
+  // Set the transfer function.
+  void setTransfer(Guchar *red, Guchar *green, Guchar *blue, Guchar *gray);
+
 private:
 
   SplashState(SplashState *state);
@@ -114,6 +117,19 @@ private:
   GBool fillOverprint;
   GBool strokeOverprint;
   int overprintMode;
+  Guchar rgbTransferR[256],
+         rgbTransferG[256],
+         rgbTransferB[256];
+  Guchar grayTransfer[256];
+#if SPLASH_CMYK
+  Guchar cmykTransferC[256],
+         cmykTransferM[256],
+         cmykTransferY[256],
+         cmykTransferK[256];
+  Guchar deviceNTransfer[SPOT_NCOMPS+4][256];
+#endif
+  Guint overprintMask;
+  GBool overprintAdditive;
 
   SplashState *next;		// used by Splash class
 

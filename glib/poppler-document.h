@@ -20,6 +20,7 @@
 #define __POPPLER_DOCUMENT_H__
 
 #include <glib-object.h>
+#include <gio/gio.h>
 #include "poppler.h"
 
 G_BEGIN_DECLS
@@ -77,17 +78,17 @@ typedef enum
 /**
  * PopplerFontType:
  * @POPPLER_FONT_TYPE_UNKNOWN: unknown font type
- * @POPPLER_FONT_TYPE_TYPE1:
- * @POPPLER_FONT_TYPE_TYPE1C:
- * @POPPLER_FONT_TYPE_TYPE1COT:
- * @POPPLER_FONT_TYPE_TYPE3:
- * @POPPLER_FONT_TYPE_TRUETYPE:
- * @POPPLER_FONT_TYPE_TRUETYPEOT:
- * @POPPLER_FONT_TYPE_CID_TYPE0:
- * @POPPLER_FONT_TYPE_CID_TYPE0C:
- * @POPPLER_FONT_TYPE_CID_TYPE0COT:
- * @POPPLER_FONT_TYPE_CID_TYPE2:
- * @POPPLER_FONT_TYPE_CID_TYPE2OT:
+ * @POPPLER_FONT_TYPE_TYPE1: Type 1 font type
+ * @POPPLER_FONT_TYPE_TYPE1C: Type 1 font type embedded in Compact Font Format (CFF) font program
+ * @POPPLER_FONT_TYPE_TYPE1COT: Type 1 font type embedded in OpenType font program
+ * @POPPLER_FONT_TYPE_TYPE3: A font type that is defined with PDF graphics operators
+ * @POPPLER_FONT_TYPE_TRUETYPE: TrueType font type
+ * @POPPLER_FONT_TYPE_TRUETYPEOT: TrueType font type embedded in OpenType font program
+ * @POPPLER_FONT_TYPE_CID_TYPE0: CIDFont type based on Type 1 font technology
+ * @POPPLER_FONT_TYPE_CID_TYPE0C: CIDFont type based on Type 1 font technology embedded in CFF font program
+ * @POPPLER_FONT_TYPE_CID_TYPE0COT: CIDFont type based on Type 1 font technology embedded in OpenType font program
+ * @POPPLER_FONT_TYPE_CID_TYPE2: CIDFont type based on TrueType font technology
+ * @POPPLER_FONT_TYPE_CID_TYPE2OT: CIDFont type based on TrueType font technology embedded in OpenType font program
  *
  * Font types
  */
@@ -116,7 +117,7 @@ typedef enum
  * @POPPLER_VIEWER_PREFERENCES_FIT_WINDOW: resize document's window to fit the size of the first displayed page
  * @POPPLER_VIEWER_PREFERENCES_CENTER_WINDOW: position the document's window in the center of the screen
  * @POPPLER_VIEWER_PREFERENCES_DISPLAY_DOC_TITLE: display document title in window's title bar
- * @POPPLER_VIEWER_PREFERENCES_DIRECTION_RTL:
+ * @POPPLER_VIEWER_PREFERENCES_DIRECTION_RTL: the predominant reading order for text is right to left
  *
  * Viewer preferences
  */
@@ -144,7 +145,7 @@ typedef enum /*< flags >*/
  * @POPPLER_PERMISSIONS_OK_TO_ASSEMBLE: assemble the document (insert, rotate, or delete pages and create
  * bookmarks or thumbnail images). Since 0.18
  * @POPPLER_PERMISSIONS_OK_TO_PRINT_HIGH_RESOLUTION: document can be printer at high resolution. Since 0.18
- * @POPPLER_PERMISSIONS_FULL:
+ * @POPPLER_PERMISSIONS_FULL: document permits all operations
  *
  * Permissions
  */
@@ -172,6 +173,15 @@ PopplerDocument   *poppler_document_new_from_data          (char            *dat
 							    int              length,
 							    const char      *password,
 							    GError         **error);
+PopplerDocument   *poppler_document_new_from_stream        (GInputStream    *stream,
+                                                            goffset          length,
+                                                            const char      *password,
+                                                            GCancellable    *cancellable,
+                                                            GError         **error);
+PopplerDocument   *poppler_document_new_from_gfile         (GFile           *file,
+                                                            const char      *password,
+                                                            GCancellable    *cancellable,
+                                                            GError         **error);
 gboolean           poppler_document_save                   (PopplerDocument *document,
 							    const char      *uri,
 							    GError         **error);
@@ -246,8 +256,10 @@ PopplerFontsIter *poppler_fonts_iter_copy          (PopplerFontsIter  *iter);
 void              poppler_fonts_iter_free          (PopplerFontsIter  *iter);
 const char       *poppler_fonts_iter_get_name      (PopplerFontsIter  *iter);
 const char       *poppler_fonts_iter_get_full_name (PopplerFontsIter  *iter);
+const char       *poppler_fonts_iter_get_substitute_name (PopplerFontsIter *iter);
 const char       *poppler_fonts_iter_get_file_name (PopplerFontsIter  *iter);
 PopplerFontType   poppler_fonts_iter_get_font_type (PopplerFontsIter  *iter);
+const char       *poppler_fonts_iter_get_encoding  (PopplerFontsIter *iter);
 gboolean	  poppler_fonts_iter_is_embedded   (PopplerFontsIter  *iter);
 gboolean	  poppler_fonts_iter_is_subset     (PopplerFontsIter  *iter);
 gboolean          poppler_fonts_iter_next          (PopplerFontsIter  *iter);

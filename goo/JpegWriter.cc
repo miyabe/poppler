@@ -5,7 +5,7 @@
 // This file is licensed under the GPLv2 or later
 //
 // Copyright (C) 2009 Stefan Thomas <thomas@eload24.com>
-// Copyright (C) 2010 Adrian Johnson <ajohnson@redneon.com>
+// Copyright (C) 2010, 2012 Adrian Johnson <ajohnson@redneon.com>
 // Copyright (C) 2010 Harry Roberts <harry.roberts@midnight-labs.org>
 // Copyright (C) 2011 Thomas Freitag <Thomas.Freitag@alfa.de>
 //
@@ -25,7 +25,7 @@ void outputMessage(j_common_ptr cinfo)
 	(*cinfo->err->format_message) (cinfo, buffer);
 
 	// Send it to poppler's error handler
-	error(-1, "%s", buffer);
+	error(errInternal, -1, "{0:s}", buffer);
 }
 
 JpegWriter::JpegWriter(int q, bool p, J_COLOR_SPACE cm)
@@ -53,6 +53,10 @@ bool JpegWriter::init(FILE *f, int width, int height, int hDPI, int vDPI)
 	// Initialize libjpeg
 	jpeg_create_compress(&cinfo);
 	
+        // Set colorspace and initialise defaults
+	cinfo.in_color_space = colorMode; /* colorspace of input image */
+	jpeg_set_defaults(&cinfo);
+
 	// Set destination file
 	jpeg_stdio_dest(&cinfo, f);
 	
@@ -62,7 +66,6 @@ bool JpegWriter::init(FILE *f, int width, int height, int hDPI, int vDPI)
 	cinfo.density_unit = 1; // dots per inch
 	cinfo.X_density = hDPI;
 	cinfo.Y_density = vDPI;
-	cinfo.in_color_space = colorMode; /* colorspace of input image */
 	/* # of color components per pixel */
 	switch (colorMode) {
 		case JCS_GRAYSCALE:
@@ -77,7 +80,6 @@ bool JpegWriter::init(FILE *f, int width, int height, int hDPI, int vDPI)
 		default:
 			return false;
 	}
-	jpeg_set_defaults(&cinfo);
 	if (cinfo.in_color_space == JCS_CMYK) {
 		jpeg_set_colorspace(&cinfo, JCS_YCCK);
 		cinfo.write_JFIF_header = TRUE;

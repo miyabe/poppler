@@ -8,9 +8,10 @@
 // Copyright (C) 2006 Kouhei Sutou <kou@cozmixng.org>
 // Copyright (C) 2009 Pino Toscano <pino@kde.org>
 // Copyright (C) 2010 Hib Eris <hib@hiberis.nl>
-// Copyright (C) 2010 Adrian Johnson <ajohnson@redneon.com>
+// Copyright (C) 2010, 2012 Adrian Johnson <ajohnson@redneon.com>
 // Copyright (C) 2010 Thomas Freitag <Thomas.Freitag@alfa.de>
 // Copyright (C) 2011 Carlos Garcia Campos <carlosgc@gnome.org>
+// Copyright (C) 2012 Fabio D'Urso <fabiodurso@hotmail.it>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -53,7 +54,7 @@ GooList *FontInfoScanner::scan(int nPages) {
   Page *page;
   Dict *resDict;
   Annots *annots;
-  Object obj1, obj2;
+  Object obj1;
   int lastPage;
 
   if (currentPage > doc->getNumPages()) {
@@ -74,14 +75,10 @@ GooList *FontInfoScanner::scan(int nPages) {
     if ((resDict = page->getResourceDict())) {
       scanFonts(resDict, result);
     }
-    annots = page->getAnnots(doc->getCatalog());
+    annots = page->getAnnots();
     for (int i = 0; i < annots->getNumAnnots(); ++i) {
-      if (annots->getAnnot(i)->getAppearance(&obj1)->isStream()) {
-	obj1.streamGetDict()->lookup("Resources", &obj2);
-	if (obj2.isDict()) {
-	  scanFonts(obj2.getDict(), result);
-	}
-	obj2.free();
+      if (annots->getAnnot(i)->getAppearanceResDict(&obj1)->isDict()) {
+        scanFonts(obj1.getDict(), result);
       }
       obj1.free();
     }
@@ -130,7 +127,7 @@ void FontInfoScanner::scanFonts(Dict *resDict, GooList *fontsList) {
 
   // recursively scan any resource dictionaries in objects in this
   // resource dictionary
-  char *resTypes[] = { "XObject", "Pattern" };
+  const char *resTypes[] = { "XObject", "Pattern" };
   for (Guint resType = 0; resType < sizeof(resTypes) / sizeof(resTypes[0]); ++resType) {
     resDict->lookup(resTypes[resType], &objDict);
     if (objDict.isDict()) {
@@ -172,9 +169,9 @@ FontInfo::FontInfo(GfxFont *font, PDFDoc *doc) {
   fontRef = *font->getID();
 
   // font name
-  origName = font->getOrigName();
+  origName = font->getName();
   if (origName != NULL) {
-    name = font->getOrigName()->copy();
+    name = font->getName()->copy();
   } else {
     name = NULL;
   }
@@ -189,17 +186,18 @@ FontInfo::FontInfo(GfxFont *font, PDFDoc *doc) {
     emb = font->getEmbeddedFontID(&embRef);
   }
 
+  file = NULL;
+  substituteName = NULL;
   if (!emb)
   {
-    DisplayFontParam *dfp = globalParams->getDisplayFont(font);
-    if (dfp)
-    {
-      if (dfp->kind == displayFontT1) file = dfp->t1.fileName->copy();
-      else file = dfp->tt.fileName->copy();
-    }
-    else file = NULL;
+    SysFontType dummy;
+    int dummy2;
+    GooString substituteNameAux;
+    file = globalParams->findSystemFontFile(font, &dummy, &dummy2, &substituteNameAux);
+    if (substituteNameAux.getLength() > 0)
+	substituteName = substituteNameAux.copy();
   }
-  else file = NULL;
+  encoding = font->getEncodingName()->copy();
 
   // look for a ToUnicode map
   hasToUnicode = gFalse;
@@ -225,6 +223,8 @@ FontInfo::FontInfo(GfxFont *font, PDFDoc *doc) {
 FontInfo::FontInfo(FontInfo& f) {
   name = f.name ? f.name->copy() : NULL;
   file = f.file ? f.file->copy() : NULL;
+  encoding = f.encoding ? f.encoding->copy() : NULL;
+  substituteName = f.substituteName ? f.substituteName->copy() : NULL;
   type = f.type;
   emb = f.emb;
   subset = f.subset;
@@ -236,4 +236,7 @@ FontInfo::FontInfo(FontInfo& f) {
 FontInfo::~FontInfo() {
   delete name;
   delete file;
+  delete encoding;
+  if (substituteName)
+    delete substituteName;
 }

@@ -23,6 +23,7 @@
 // Copyright (C) 2010 Hib Eris <hib@hiberis.nl>
 // Copyright (C) 2010 Srinivas Adicherla <srinivas.adicherla@geodesic.com>
 // Copyright (C) 2011 Thomas Freitag <Thomas.Freitag@alfa.de>
+// Copyright (C) 2012 Fabio D'Urso <fabiodurso@hotmail.it>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -45,6 +46,7 @@
 
 class GooString;
 class BaseStream;
+enum CryptAlgorithm;
 class OutputDev;
 class Links;
 class LinkAction;
@@ -93,6 +95,9 @@ public:
 
   // Get file name.
   GooString *getFileName() { return fileName; }
+#ifdef _WIN32
+  wchar_t *getFileNameU() { return fileNameU; }
+#endif
 
   // Get the linearization table.
   Linearization *getLinearization();
@@ -239,26 +244,41 @@ public:
   void markPageObjects(Dict *pageDict, XRef *xRef, XRef *countRef, Guint numOffset);
   // write all objects used by pageDict to outStr
   Guint writePageObjects(OutStream *outStr, XRef *xRef, Guint numOffset);
-  static Guint writeObject (Object *obj, Ref *ref, OutStream* outStr, XRef *xref, Guint numOffset);
+  static void writeObject (Object *obj, OutStream* outStr, XRef *xref, Guint numOffset, Guchar *fileKey,
+                           CryptAlgorithm encAlgorithm, int keyLength, int objNum, int objGen);
   static void writeHeader(OutStream *outStr, int major, int minor);
-  static void writeTrailer (Guint uxrefOffset, int uxrefSize, OutStream* outStr, GBool incrUpdate,
-                            Guint startxRef, Ref *root, XRef *xRef, const char *fileName, Guint fileSize);
+
+  // Ownership goes to the caller
+  static Dict *createTrailerDict (int uxrefSize, GBool incrUpdate, Guint startxRef,
+                                  Ref *root, XRef *xRef, const char *fileName, Guint fileSize);
+  static void writeXRefTableTrailer (Dict *trailerDict, XRef *uxref, GBool writeAllEntries,
+                                     Guint uxrefOffset, OutStream* outStr, XRef *xRef);
+  static void writeXRefStreamTrailer (Dict *trailerDict, XRef *uxref, Ref *uxrefStreamRef,
+                                      Guint uxrefOffset, OutStream* outStr, XRef *xRef);
 
 private:
   // insert referenced objects in XRef
   void markDictionnary (Dict* dict, XRef *xRef, XRef *countRef, Guint numOffset);
   void markObject (Object *obj, XRef *xRef, XRef *countRef, Guint numOffset);
-  static void writeDictionnary (Dict* dict, OutStream* outStr, XRef *xRef, Guint numOffset);
+  static void writeDictionnary (Dict* dict, OutStream* outStr, XRef *xRef, Guint numOffset, Guchar *fileKey,
+                                CryptAlgorithm encAlgorithm, int keyLength, int objNum, int objGen);
 
-  // Add object to current file stream and return the offset of the beginning of the object
-  Guint writeObject (Object *obj, Ref *ref, OutStream* outStr)
-  { return writeObject(obj, ref, outStr, getXRef(), 0); }
-  void writeDictionnary (Dict* dict, OutStream* outStr)
-  { writeDictionnary(dict, outStr, getXRef(), 0); }
+  // Write object header to current file stream and return its offset
+  static Guint writeObjectHeader (Ref *ref, OutStream* outStr);
+  static void writeObjectFooter (OutStream* outStr);
+
+  void writeObject (Object *obj, OutStream* outStr, Guchar *fileKey, CryptAlgorithm encAlgorithm,
+                    int keyLength, int objNum, int objGen)
+  { writeObject(obj, outStr, getXRef(), 0, fileKey, encAlgorithm, keyLength, objNum, objGen); }
+  void writeDictionnary (Dict* dict, OutStream* outStr, Guchar *fileKey, CryptAlgorithm encAlgorithm,
+                         int keyLength, int objNum, int objGen)
+  { writeDictionnary(dict, outStr, getXRef(), 0, fileKey, encAlgorithm, keyLength, objNum, objGen); }
   static void writeStream (Stream* str, OutStream* outStr);
   static void writeRawStream (Stream* str, OutStream* outStr);
-  void writeTrailer (Guint uxrefOffset, int uxrefSize, OutStream* outStr, GBool incrUpdate);
-  static void writeString (GooString* s, OutStream* outStr);
+  void writeXRefTableTrailer (Guint uxrefOffset, XRef *uxref, GBool writeAllEntries,
+                              int uxrefSize, OutStream* outStr, GBool incrUpdate);
+  static void writeString (GooString* s, OutStream* outStr, Guchar *fileKey,
+                           CryptAlgorithm encAlgorithm, int keyLength, int objNum, int objGen);
   void saveIncrementalUpdate (OutStream* outStr);
   void saveCompleteRewrite (OutStream* outStr);
 
@@ -281,6 +301,9 @@ private:
   Guint strToUnsigned(char *s);
 
   GooString *fileName;
+#ifdef _WIN32
+  wchar_t *fileNameU;
+#endif
   FILE *file;
   BaseStream *str;
   void *guiData;

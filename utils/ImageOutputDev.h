@@ -17,6 +17,7 @@
 // Copyright (C) 2008 Timothy Lee <timothy.lee@siriushk.com>
 // Copyright (C) 2009 Carlos Garcia Campos <carlosgc@gnome.org>
 // Copyright (C) 2010 Jakob Voss <jakob.voss@gbv.de>
+// Copyright (C) 2012 Adrian Johnson <ajohnson@redneon.com>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -44,19 +45,30 @@ class GfxState;
 
 class ImageOutputDev: public OutputDev {
 public:
+  enum ImageType {
+    imgImage,
+    imgStencil,
+    imgMask,
+    imgSmask
+  };
 
   // Create an OutputDev which will write images to files named
   // <fileRoot>-NNN.<type> or <fileRoot>-PPP-NNN.<type>, if 
   // <pageNames> is set. Normally, all images are written as PBM
   // (.pbm) or PPM (.ppm) files.  If <dumpJPEG> is set, JPEG images 
   // are written as JPEG (.jpg) files.
-  ImageOutputDev(char *fileRootA, GBool pageNamesA, GBool dumpJPEGA);
+  ImageOutputDev(char *fileRootA, GBool pageNamesA, GBool dumpJPEGA, GBool listImagesA);
 
   // Destructor.
   virtual ~ImageOutputDev();
 
   // Check if file was successfully created.
   virtual GBool isOk() { return ok; }
+
+  // Does this device use tilingPatternFill()?  If this returns false,
+  // tiling pattern fills will be reduced to a series of other drawing
+  // operations.
+  virtual GBool useTilingPatternFill() { return gTrue; }
 
   // Does this device use beginType3Char/endType3Char?  Otherwise,
   // text in Type 3 fonts will be drawn with drawChar/drawString.
@@ -77,6 +89,13 @@ public:
 
   // Does this device use drawChar() or drawString()?
   virtual GBool useDrawChar() { return gFalse; }
+
+  //----- path painting
+  virtual GBool tilingPatternFill(GfxState *state, Gfx *gfx, Catalog *cat, Object *str,
+				  double *pmat, int paintType, int tilingType, Dict *resDict,
+				  double *mat, double *bbox,
+				  int x0, int y0, int x1, int y1,
+				  double xStep, double yStep);
 
   //----- image drawing
   virtual void drawImageMask(GfxState *state, Object *ref, Stream *str,
@@ -103,10 +122,22 @@ public:
 private:
   // Sets the output filename with a given file extension
   void setFilename(const char *fileExt);
+  void listImage(GfxState *state, Object *ref, Stream *str,
+		 int width, int height,
+		 GfxImageColorMap *colorMap,
+		 GBool interpolate, GBool inlineImg,
+		 ImageType imageType);
+  void writeMask(GfxState *state, Object *ref, Stream *str,
+		 int width, int height, GBool invert,
+		 GBool interpolate, GBool inlineImg);
+  void writeImage(GfxState *state, Object *ref, Stream *str,
+                  int width, int height, GfxImageColorMap *colorMap,
+                  GBool interpolate, int *maskColors, GBool inlineImg);
 
 
   char *fileRoot;		// root of output file names
   char *fileName;		// buffer for output file names
+  GBool listImages;		// list images instead of dumping
   GBool dumpJPEG;		// set to dump native JPEG files
   GBool pageNames;		// set to include page number in file names
   int pageNum;			// current page number

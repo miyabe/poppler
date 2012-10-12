@@ -34,6 +34,7 @@ typedef struct {
 	GtkWidget            *darea;
 	GtkWidget            *fg_color_button;
 	GtkWidget            *bg_color_button;
+	GtkWidget            *copy_button;
 
 	PopplerPage          *page;
 	cairo_surface_t      *surface;
@@ -125,7 +126,7 @@ pgd_selections_update_selection_region (PgdSelectionsDemo *demo)
 }
 
 static void
-pgd_selections_update_seleted_text (PgdSelectionsDemo *demo)
+pgd_selections_update_selected_text (PgdSelectionsDemo *demo)
 {
 	GList *region;
 	gchar *text;
@@ -146,6 +147,7 @@ pgd_selections_update_seleted_text (PgdSelectionsDemo *demo)
 	if (text) {
 		demo->selected_text = g_utf8_normalize (text, -1, G_NORMALIZE_NFKC);
 		g_free (text);
+		gtk_widget_set_sensitive(demo->copy_button, TRUE);
 	}
 }
 
@@ -169,7 +171,7 @@ pgd_selections_update_cursor (PgdSelectionsDemo *demo,
 	gdk_window_set_cursor (window, cursor);
 	gdk_flush ();
 	if (cursor)
-		gdk_cursor_unref (cursor);
+		g_object_unref (cursor);
 }
 
 static gboolean
@@ -217,18 +219,12 @@ pgd_selections_render_selections (PgdSelectionsDemo *demo)
 }
 
 static gboolean
-pgd_selections_drawing_area_expose (GtkWidget         *area,
-				    GdkEventExpose    *event,
-				    PgdSelectionsDemo *demo)
+pgd_selections_drawing_area_draw (GtkWidget         *area,
+                                  cairo_t           *cr,
+                                  PgdSelectionsDemo *demo)
 {
-	cairo_t *cr;
-
 	if (!demo->surface)
 		return FALSE;
-
-	gdk_window_clear (gtk_widget_get_window (area));
-
-	cr = gdk_cairo_create (gtk_widget_get_window (area));
 
 	cairo_save (cr);
 	cairo_set_source_surface (cr, demo->surface, 0, 0);
@@ -239,8 +235,6 @@ pgd_selections_drawing_area_expose (GtkWidget         *area,
 		cairo_set_source_surface (cr, demo->selection_surface, 0, 0);
 		cairo_paint (cr);
 	}
-
-	cairo_destroy (cr);
 
 	return TRUE;
 }
@@ -316,7 +310,7 @@ pgd_selections_drawing_area_button_release (GtkWidget         *area,
 		return FALSE;
 
 	if (demo->start.x != -1)
-		pgd_selections_update_seleted_text (demo);
+		pgd_selections_update_selected_text (demo);
 
 	demo->start.x = -1;
 
@@ -332,7 +326,8 @@ static void
 pgd_selections_drawing_area_realize (GtkWidget         *area,
 				     PgdSelectionsDemo *demo)
 {
-	GtkStyle *style = gtk_widget_get_style (area);
+	GtkStyleContext *style_context = gtk_widget_get_style_context (area);
+        GdkRGBA rgba;
 
 	gtk_widget_add_events (area,
 			       GDK_POINTER_MOTION_HINT_MASK |
@@ -341,10 +336,10 @@ pgd_selections_drawing_area_realize (GtkWidget         *area,
 			       GDK_BUTTON_RELEASE_MASK);
 	g_object_set (area, "has-tooltip", TRUE, NULL);
 
-	gtk_color_button_set_color (GTK_COLOR_BUTTON (demo->fg_color_button),
-				    &style->text[GTK_STATE_SELECTED]);
-	gtk_color_button_set_color (GTK_COLOR_BUTTON (demo->bg_color_button),
-				    &style->base[GTK_STATE_SELECTED]);
+        gtk_style_context_get_color (style_context, GTK_STATE_FLAG_SELECTED, &rgba);
+        gtk_color_button_set_rgba (GTK_COLOR_BUTTON (demo->fg_color_button), &rgba);
+        gtk_style_context_get_background_color (style_context, GTK_STATE_FLAG_SELECTED, &rgba);
+        gtk_color_button_set_rgba (GTK_COLOR_BUTTON (demo->bg_color_button), &rgba);
 }
 
 static gboolean
@@ -398,6 +393,7 @@ pgd_selections_render (GtkButton         *button,
 
 	pgd_selections_clear_selections (demo);
 	pgd_selections_update_selection_region (demo);
+        gtk_widget_set_sensitive (demo->copy_button, FALSE);
 
 	if (demo->surface)
 		cairo_surface_destroy (demo->surface);
@@ -430,6 +426,15 @@ pgd_selections_render (GtkButton         *button,
 }
 
 static void
+pgd_selections_copy (GtkButton         *button,
+		     PgdSelectionsDemo *demo)
+{
+	GtkClipboard *clipboard = gtk_clipboard_get_for_display(gdk_display_get_default(),
+								GDK_SELECTION_CLIPBOARD);
+	gtk_clipboard_set_text (clipboard, demo->selected_text, -1);
+}
+
+static void
 pgd_selections_page_selector_value_changed (GtkSpinButton     *spinbutton,
 					    PgdSelectionsDemo *demo)
 {
@@ -451,12 +456,12 @@ pgd_selections_fg_color_changed (GtkColorButton    *button,
 				 GParamSpec        *pspec,
 				 PgdSelectionsDemo *demo)
 {
-	GdkColor color;
+	GdkRGBA color;
 
-	gtk_color_button_get_color (GTK_COLOR_BUTTON (button), &color);
-	demo->glyph_color.red = color.red;
-	demo->glyph_color.green = color.green;
-	demo->glyph_color.blue = color.blue;
+	gtk_color_button_get_rgba (GTK_COLOR_BUTTON (button), &color);
+	demo->glyph_color.red = CLAMP ((guint) (color.red * 65535), 0, 65535);
+	demo->glyph_color.green = CLAMP ((guint) (color.green * 65535), 0, 65535);
+	demo->glyph_color.blue = CLAMP ((guint) (color.blue * 65535), 0, 65535);
 }
 
 static void
@@ -464,12 +469,12 @@ pgd_selections_bg_color_changed (GtkColorButton    *button,
 				 GParamSpec        *pspec,
 				 PgdSelectionsDemo *demo)
 {
-	GdkColor color;
+	GdkRGBA color;
 
-	gtk_color_button_get_color (GTK_COLOR_BUTTON (button), &color);
-	demo->background_color.red = color.red;
-	demo->background_color.green = color.green;
-	demo->background_color.blue = color.blue;
+	gtk_color_button_get_rgba (GTK_COLOR_BUTTON (button), &color);
+	demo->background_color.red = CLAMP ((guint) (color.red * 65535), 0, 65535);
+	demo->background_color.green = CLAMP ((guint) (color.green * 65535), 0, 65535);
+	demo->background_color.blue = CLAMP ((guint) (color.blue * 65535), 0, 65535);
 }
 
 GtkWidget *
@@ -487,13 +492,13 @@ pgd_selections_properties_selector_create (PgdSelectionsDemo *demo)
 
 	n_pages = poppler_document_get_n_pages (demo->doc);
 
-	vbox = gtk_vbox_new (FALSE, 6);
+	vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 6);
 
-	hbox = gtk_hbox_new (FALSE, 12);
+	hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
 	gtk_box_pack_start (GTK_BOX (vbox), hbox, TRUE, TRUE, 0);
 	gtk_widget_show (hbox);
 
-	page_hbox = gtk_hbox_new (FALSE, 6);
+	page_hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
 
 	label = gtk_label_new ("Page:");
 	gtk_box_pack_start (GTK_BOX (page_hbox), label, TRUE, TRUE, 0);
@@ -515,7 +520,7 @@ pgd_selections_properties_selector_create (PgdSelectionsDemo *demo)
 	gtk_box_pack_start (GTK_BOX (hbox), page_hbox, FALSE, TRUE, 0);
 	gtk_widget_show (page_hbox);
 
-	scale_hbox = gtk_hbox_new (FALSE, 6);
+	scale_hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
 
 	label = gtk_label_new ("Scale:");
 	gtk_box_pack_start (GTK_BOX (scale_hbox), label, TRUE, TRUE, 0);
@@ -532,17 +537,17 @@ pgd_selections_properties_selector_create (PgdSelectionsDemo *demo)
 	gtk_box_pack_start (GTK_BOX (hbox), scale_hbox, FALSE, TRUE, 0);
 	gtk_widget_show (scale_hbox);
 
-	rotate_hbox = gtk_hbox_new (FALSE, 6);
+	rotate_hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
 
 	label = gtk_label_new ("Rotate:");
 	gtk_box_pack_start (GTK_BOX (rotate_hbox), label, TRUE, TRUE, 0);
 	gtk_widget_show (label);
 
-	rotate_selector = gtk_combo_box_new_text ();
-	gtk_combo_box_append_text (GTK_COMBO_BOX (rotate_selector), "0");
-	gtk_combo_box_append_text (GTK_COMBO_BOX (rotate_selector), "90");
-	gtk_combo_box_append_text (GTK_COMBO_BOX (rotate_selector), "180");
-	gtk_combo_box_append_text (GTK_COMBO_BOX (rotate_selector), "270");
+	rotate_selector = gtk_combo_box_text_new ();
+	gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (rotate_selector), "0");
+	gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (rotate_selector), "90");
+	gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (rotate_selector), "180");
+	gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (rotate_selector), "270");
 	gtk_combo_box_set_active (GTK_COMBO_BOX (rotate_selector), 0);
 #if 0
 	g_signal_connect (G_OBJECT (rotate_selector), "changed",
@@ -555,11 +560,11 @@ pgd_selections_properties_selector_create (PgdSelectionsDemo *demo)
 	gtk_box_pack_start (GTK_BOX (hbox), rotate_hbox, FALSE, TRUE, 0);
 	gtk_widget_show (rotate_hbox);
 
-	hbox = gtk_hbox_new (FALSE, 12);
+	hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
 	gtk_box_pack_start (GTK_BOX (vbox), hbox, TRUE, TRUE, 0);
 	gtk_widget_show (hbox);
 
-	color_hbox = gtk_hbox_new (FALSE, 6);
+	color_hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
 
 	label = gtk_label_new ("Foreground Color:");
 	gtk_box_pack_start (GTK_BOX (color_hbox), label, TRUE, TRUE, 0);
@@ -575,7 +580,7 @@ pgd_selections_properties_selector_create (PgdSelectionsDemo *demo)
 	gtk_box_pack_start (GTK_BOX (hbox), color_hbox, FALSE, TRUE, 0);
 	gtk_widget_show (color_hbox);
 
-	color_hbox = gtk_hbox_new (FALSE, 6);
+	color_hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
 
 	label = gtk_label_new ("Background Color:");
 	gtk_box_pack_start (GTK_BOX (color_hbox), label, TRUE, TRUE, 0);
@@ -590,6 +595,14 @@ pgd_selections_properties_selector_create (PgdSelectionsDemo *demo)
 
 	gtk_box_pack_start (GTK_BOX (hbox), color_hbox, FALSE, TRUE, 0);
 	gtk_widget_show (color_hbox);
+
+	demo->copy_button = gtk_button_new_with_label ("Copy");
+	g_signal_connect (G_OBJECT (demo->copy_button), "clicked",
+			  G_CALLBACK (pgd_selections_copy),
+			  (gpointer)demo);
+	gtk_box_pack_end (GTK_BOX (hbox), demo->copy_button, FALSE, TRUE, 0);
+	gtk_widget_set_sensitive(demo->copy_button, FALSE);
+	gtk_widget_show (demo->copy_button);
 
 	button = gtk_button_new_with_label ("Render");
 	g_signal_connect (G_OBJECT (button), "clicked",
@@ -615,7 +628,7 @@ pgd_selections_create_widget (PopplerDocument *document)
 
 	pgd_selections_clear_selections (demo);
 
-	vbox = gtk_vbox_new (FALSE, 6);
+	vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 6);
 
 	hbox = pgd_selections_properties_selector_create (demo);
 	gtk_box_pack_start (GTK_BOX (vbox), hbox, FALSE, TRUE, 6);
@@ -625,8 +638,8 @@ pgd_selections_create_widget (PopplerDocument *document)
 	g_signal_connect (demo->darea, "realize",
 			  G_CALLBACK (pgd_selections_drawing_area_realize),
 			  (gpointer)demo);
-	g_signal_connect (demo->darea, "expose_event",
-			  G_CALLBACK (pgd_selections_drawing_area_expose),
+	g_signal_connect (demo->darea, "draw",
+			  G_CALLBACK (pgd_selections_drawing_area_draw),
 			  (gpointer)demo);
 	g_signal_connect (demo->darea, "button_press_event",
 			  G_CALLBACK (pgd_selections_drawing_area_button_press),

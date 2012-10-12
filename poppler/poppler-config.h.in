@@ -2,7 +2,7 @@
 //
 // poppler-config.h
 //
-// Copyright 1996-2004 Glyph & Cog, LLC
+// Copyright 1996-2011 Glyph & Cog, LLC
 //
 //========================================================================
 
@@ -13,6 +13,11 @@
 // used in some of the header files we install.  The #ifndef/#endif
 // around #undef look odd, but it's to silence warnings about
 // redefining those symbols.
+
+/* Defines the poppler version. */
+#ifndef POPPLER_VERSION
+#undef POPPLER_VERSION
+#endif
 
 /* Enable multithreading support. */
 #ifndef MULTITHREADED
@@ -37,16 +42,6 @@
 /* Enable word list support. */
 #ifndef TEXTOUT_WORD_LIST
 #undef TEXTOUT_WORD_LIST
-#endif
-
-/* Use fontconfig font configuration backend */
-#ifndef WITH_FONTCONFIGURATION_FONTCONFIG
-#undef WITH_FONTCONFIGURATION_FONTCONFIG
-#endif
-
-/* Use win32 font configuration backend */
-#ifndef WITH_FONTCONFIGURATION_WIN32
-#undef WITH_FONTCONFIGURATION_WIN32
 #endif
 
 /* Support for curl is compiled in. */
@@ -122,8 +117,8 @@
 //------------------------------------------------------------------------
 
 // copyright notice
-#define popplerCopyright "Copyright 2005-2011 The Poppler Developers - http://poppler.freedesktop.org"
-#define xpdfCopyright "Copyright 1996-2004 Glyph & Cog, LLC"
+#define popplerCopyright "Copyright 2005-2012 The Poppler Developers - http://poppler.freedesktop.org"
+#define xpdfCopyright "Copyright 1996-2011 Glyph & Cog, LLC"
 
 //------------------------------------------------------------------------
 // popen
@@ -153,7 +148,7 @@
 #if defined(_WIN32)
 #ifdef _MSC_VER
 #define strtok_r strtok_s
-#elif __MINGW32__
+#elif __MINGW32__ && !defined(__WINPTHREADS_VERSION)
 char * strtok_r (char *s, const char *delim, char **save_ptr);
 #endif
 #endif

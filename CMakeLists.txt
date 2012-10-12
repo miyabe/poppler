@@ -15,8 +15,8 @@ include(TestBigEndian)
 test_big_endian(WORDS_BIGENDIAN)
 
 set(POPPLER_MAJOR_VERSION "0")
-set(POPPLER_MINOR_VERSION "17")
-set(POPPLER_MICRO_VERSION "3")
+set(POPPLER_MINOR_VERSION "21")
+set(POPPLER_MICRO_VERSION "0")
 set(POPPLER_VERSION "${POPPLER_MAJOR_VERSION}.${POPPLER_MINOR_VERSION}.${POPPLER_MICRO_VERSION}")
 
 # command line switches
@@ -28,18 +28,37 @@ option(ENABLE_SPLASH "Build the Splash graphics backend." ON)
 option(ENABLE_UTILS "Compile poppler command line utils." ON)
 option(ENABLE_CPP "Compile poppler cpp wrapper." ON)
 option(ENABLE_LIBOPENJPEG "Use libopenjpeg for JPX streams." ON)
-option(ENABLE_LCMS "Use liblcms for color management." ON)
+set(ENABLE_CMS "auto" CACHE STRING "Use color management system. Possible values: auto, lcms1, lcms2. 'auto' prefers lcms2 over lcms1 if both are available. Unset to disable color management system.")
 option(ENABLE_LIBCURL "Build libcurl based HTTP support." OFF)
 option(ENABLE_ZLIB "Build with zlib (not totally safe)." OFF)
 option(USE_FIXEDPOINT "Use fixed point arithmetic in the Splash backend" OFF)
 option(USE_FLOAT "Use single precision arithmetic in the Splash backend" OFF)
 if(WIN32)
-  option(ENABLE_RELOCATABLE "Hardcode the poppler library location (on Windows)." ON)
+  option(ENABLE_RELOCATABLE "Do not hardcode the poppler library location (on Windows)." ON)
 else(WIN32)
   set(ENABLE_RELOCATABLE OFF)
 endif(WIN32)
 
 set(LIB_SUFFIX "" CACHE STRING "Define suffix of directory name (32/64)")
+
+set(TESTDATADIR "${CMAKE_SOURCE_DIR}/../test" CACHE STRING "Specify test data dir.")
+if(NOT (EXISTS ${TESTDATADIR} AND EXISTS ${TESTDATADIR}/test-poppler.c))
+  message(WARNING "
+ No test data found in $testdatadir.
+ You will not be able to run 'make test' successfully.
+
+ The test data is not included in the source packages
+ and is also not part of the main git repository. Instead,
+ you can checkout the test data from its own git
+ repository with:
+
+   git clone git://git.freedesktop.org/git/poppler/test
+
+ You should checkout the test data as a sibling of your
+ poppler source folder or specify the location of your
+ checkout with -DTESTDATADIR=/path/to/checkoutdir/test.
+  ")
+endif()
 
 if(WIN32)
   set(_default_fontconfiguration "win32")
@@ -93,7 +112,6 @@ if(CAIRO_FOUND)
     # Check for introspection
     macro_optional_find_package(GObjectIntrospection 0.9.12)
     set(HAVE_INTROSPECTION ${INTROSPECTION_FOUND})
-    set(GLIB_REQ "glib-2.0 >= ${GLIB_REQUIRED} gobject-2.0 >= ${GLIB_REQUIRED} cairo >= ${CAIRO_VERSION}")
     set(POPPLER_GLIB_DISABLE_DEPRECATED "${POPPLER_GLIB_DISABLE_DEPRECATED} -DG_DISABLE_DEPRECATED")
     set(POPPLER_GLIB_DISABLE_SINGLE_INCLUDES "${POPPLER_GLIB_DISABLE_SINGLE_INCLUDES} -DG_DISABLE_SINGLE_INCLUDES")
     macro_optional_find_package(GTK)
@@ -118,10 +136,22 @@ if(ENABLE_LIBOPENJPEG)
   set(ENABLE_LIBOPENJPEG ${LIBOPENJPEG_FOUND})
   set(HAVE_OPENJPEG_H ON)
 endif(ENABLE_LIBOPENJPEG)
-if(ENABLE_LCMS)
+if(ENABLE_CMS STREQUAL "auto")
+  find_package(LCMS2)
+  set(USE_CMS ${LCMS2_FOUND})
+  if(NOT LCMS2_FOUND)
+    find_package(LCMS)
+    set(USE_CMS ${LCMS_FOUND})
+    set(USE_LCMS1 ${LCMS_FOUND})
+  endif(NOT LCMS2_FOUND)
+elseif(ENABLE_CMS STREQUAL "lcms1")
   find_package(LCMS)
   set(USE_CMS ${LCMS_FOUND})
-endif(ENABLE_LCMS)
+  set(USE_LCMS1 ${LCMS_FOUND})
+elseif(ENABLE_CMS STREQUAL "lcms2")
+  find_package(LCMS2)
+  set(USE_CMS ${LCMS2_FOUND})
+endif()
 if(ENABLE_LIBCURL)
   find_package(CURL)
   include_directories(${CURL_INCLUDE_DIR})
@@ -131,6 +161,7 @@ endif(ENABLE_LIBCURL)
 add_definitions(-DHAVE_CONFIG_H=1)
 if(FONTCONFIG_FOUND)
   add_definitions(${FONTCONFIG_DEFINITIONS})
+  include_directories(${FONTCONFIG_INCLUDE_DIR})
 endif(FONTCONFIG_FOUND)
 if(WITH_FONTCONFIGURATION_WIN32)
   if(MINGW)
@@ -173,6 +204,9 @@ endif(LIBOPENJPEG_FOUND)
 if(LCMS_FOUND)
   include_directories(${LCMS_INCLUDE_DIR})
 endif(LCMS_FOUND)
+if(LCMS2_FOUND)
+  include_directories(${LCMS2_INCLUDE_DIR})
+endif(LCMS2_FOUND)
 
 if(DEFINED COMPILE_WARNINGS)
 else(DEFINED COMPILE_WARNINGS)
@@ -209,11 +243,13 @@ set(poppler_SRCS
   goo/JpegWriter.cc
   goo/ImgWriter.cc
   goo/gstrtod.cc
+  goo/grandom.cc
   fofi/FoFiBase.cc
   fofi/FoFiEncodings.cc
   fofi/FoFiTrueType.cc
   fofi/FoFiType1.cc
   fofi/FoFiType1C.cc
+  fofi/FoFiIdentifier.cc
   poppler/Annot.cc
   poppler/Array.cc
   poppler/BuiltinFont.cc
@@ -261,6 +297,7 @@ set(poppler_SRCS
   poppler/strtok_r.cpp
   poppler/UnicodeMap.cc
   poppler/UnicodeTypeTable.cc
+  poppler/UTF.cc
   poppler/XRef.cc
   poppler/PSOutputDev.cc
   poppler/TextOutputDev.cc
@@ -332,7 +369,12 @@ else (LIBOPENJPEG_FOUND)
   )
 endif(LIBOPENJPEG_FOUND)
 if(USE_CMS)
-  set(poppler_LIBS ${poppler_LIBS} ${LCMS_LIBRARIES})
+  if(LCMS_FOUND)
+    set(poppler_LIBS ${poppler_LIBS} ${LCMS_LIBRARIES})
+  endif(LCMS_FOUND)
+  if(LCMS2_FOUND)
+    set(poppler_LIBS ${poppler_LIBS} ${LCMS2_LIBRARIES})
+  endif(LCMS2_FOUND)
 endif(USE_CMS)
 if(WIN32)
   # gdi32 is needed under win32
@@ -347,11 +389,12 @@ endif(TIFF_FOUND)
 
 if(MSVC)
 add_definitions(-D_CRT_SECURE_NO_WARNINGS)
+set(CMAKE_CXX_FLAGS "/Zc:wchar_t- ${CMAKE_CXX_FLAGS}")
 add_library(poppler STATIC ${poppler_SRCS})
 else(MSVC)
 add_library(poppler SHARED ${poppler_SRCS})
 endif(MSVC)
-set_target_properties(poppler PROPERTIES VERSION 17.0.0 SOVERSION 17)
+set_target_properties(poppler PROPERTIES VERSION 29.0.0 SOVERSION 29)
 target_link_libraries(poppler ${poppler_LIBS})
 target_link_libraries(poppler LINK_INTERFACE_LIBRARIES "")
 install(TARGETS poppler RUNTIME DESTINATION bin LIBRARY DESTINATION lib${LIB_SUFFIX} ARCHIVE DESTINATION lib${LIB_SUFFIX})
@@ -425,7 +468,7 @@ if(ENABLE_XPDF_HEADERS)
     poppler/SecurityHandler.h
     poppler/StdinCachedFile.h
     poppler/StdinPDFDocBuilder.h
-    poppler/UTF8.h
+    poppler/UTF.h
     poppler/XpdfPluginAPI.h
     poppler/Sound.h
     ${CMAKE_CURRENT_BINARY_DIR}/poppler/poppler-config.h
@@ -443,6 +486,7 @@ if(ENABLE_XPDF_HEADERS)
     goo/ImgWriter.h
     goo/GooLikely.h
     goo/gstrtod.h
+    goo/grandom.h
     DESTINATION include/poppler/goo)
   if(PNG_FOUND)
     install(FILES
@@ -460,6 +504,7 @@ if(ENABLE_XPDF_HEADERS)
     fofi/FoFiTrueType.h
     fofi/FoFiType1.h
     fofi/FoFiType1C.h
+    fofi/FoFiIdentifier.h
     DESTINATION include/poppler/fofi)
   if(ENABLE_LIBCURL)
     install(FILES
@@ -573,7 +618,14 @@ show_end_message_yesno("use zlib" ENABLE_ZLIB)
 show_end_message_yesno("use curl" ENABLE_LIBCURL)
 show_end_message_yesno("use libopenjpeg" LIBOPENJPEG_FOUND)
 show_end_message_yesno("use cms" USE_CMS)
+if(LCMS_FOUND)
+  message("      with lcms1")
+endif(LCMS_FOUND)
+if(LCMS2_FOUND)
+  message("      with lcms2")
+endif(LCMS2_FOUND)
 show_end_message_yesno("command line utils" ENABLE_UTILS)
+show_end_message("test data dir" ${TESTDATADIR})
 
 if(USE_FIXEDPOINT AND USE_FLOAT)
   message("Warning: Single precision and fixed point options should not be enabled at the same time")

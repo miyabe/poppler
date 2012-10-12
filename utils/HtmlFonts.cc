@@ -23,6 +23,8 @@
 // Copyright (C) 2010 OSSD CDAC Mumbai by Leena Chourey (leenac@cdacmumbai.in) and Onkar Potdar (onkar@cdacmumbai.in)
 // Copyright (C) 2011 Joshua Richardson <jric@chegg.com>
 // Copyright (C) 2011 Stephen Reichling <sreichling@chegg.com>
+// Copyright (C) 2012 Igor Slepchin <igor.slepchin@gmail.com>
+// Copyright (C) 2012 Luis Parravicini <lparravi@gmail.com>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -33,11 +35,12 @@
 #include "HtmlUtils.h"
 #include "GlobalParams.h"
 #include "UnicodeMap.h"
+#include "GfxFont.h"
 #include <stdio.h>
 
  struct Fonts{
-    char *Fontname;
-    char *name;
+    const char *Fontname;
+    const char *name;
   };
 
 const int font_num=13;
@@ -61,6 +64,7 @@ static Fonts fonts[font_num+1]={
 
 #define xoutRound(x) ((int)(x + 0.5))
 extern GBool xml;
+extern GBool fontFullName;
 
 GooString* HtmlFont::DefaultFont=new GooString("Times"); // Arial,Helvetica,sans-serif
 
@@ -101,10 +105,12 @@ GooString *HtmlFontColor::toString() const{
   return tmp;
 } 
 
-HtmlFont::HtmlFont(GooString* ftname,int _size, GfxRGB rgb){
+HtmlFont::HtmlFont(GfxFont *font, int _size, GfxRGB rgb){
   //if (col) color=HtmlFontColor(col); 
   //else color=HtmlFontColor();
   color=HtmlFontColor(rgb);
+  GooString* ftname=font->getName();
+  if (!ftname) ftname = getDefaultFont();
 
   GooString *fontname = NULL;
 
@@ -124,12 +130,20 @@ HtmlFont::HtmlFont(GooString* ftname,int _size, GfxRGB rgb){
   bold = gFalse;
   rotOrSkewed = gFalse;
 
+  if (font->isBold() || font->getWeight() >= GfxFont::W700) bold=gTrue;
+  if (font->isItalic()) italic=gTrue;
+
   if (fontname){
-    if (strstr(fontname->lowerCase()->getCString(),"bold"))  bold=gTrue;
-    
-    if (strstr(fontname->lowerCase()->getCString(),"italic")||
-	strstr(fontname->lowerCase()->getCString(),"oblique"))  italic=gTrue;
-    
+    if (!bold && strstr(fontname->lowerCase()->getCString(),"bold")) {
+		bold=gTrue;
+    }
+
+    if (!italic &&
+	(strstr(fontname->lowerCase()->getCString(),"italic")||
+	 strstr(fontname->lowerCase()->getCString(),"oblique"))) {
+		italic=gTrue;
+    }
+
     int i=0;
     while (strcmp(ftname->getCString(),fonts[i].Fontname)&&(i<font_num)) 
 	{
@@ -306,7 +320,7 @@ GooString* HtmlFontAccu::CSStyle(int i, int j){
    HtmlFont font=*g;
    GooString *Size=GooString::fromInt(font.getSize());
    GooString *colorStr=font.getColor().toString();
-   GooString *fontName=font.getFontName();
+   GooString *fontName=(fontFullName ? font.getFullName() : font.getFontName());
    GooString *lSize;
    
    if(!xml){

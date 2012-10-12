@@ -76,6 +76,9 @@
 /* Define to 1 if you have the `mkstemps' function. */
 #cmakedefine HAVE_MKSTEMPS 1
 
+/* Define to 1 if you have the `rand_r' function. */
+#cmakedefine HAVE_RAND_R 1
+
 /* Define to 1 if you have the <ndir.h> header file, and it defines `DIR'. */
 #cmakedefine HAVE_NDIR_H 1
 
@@ -180,6 +183,9 @@
 /* Use single precision arithmetic in the Splash backend */
 #cmakedefine USE_FLOAT 1
 
+/* Defines if use lcms1 */
+#cmakedefine USE_LCMS1 1
+
 /* Version number of package */
 #define VERSION "${POPPLER_VERSION}"
 
@@ -188,6 +194,9 @@
 
 /* Use win32 font configuration backend */
 #cmakedefine WITH_FONTCONFIGURATION_WIN32 1
+
+/* OpenJPEG with the OPJ_DPARAMETERS_IGNORE_PCLR_CMAP_CDEF_FLAG flag */
+#cmakedefine WITH_OPENJPEG_IGNORE_PCLR_CMAP_CDEF_FLAG 1
 
 /* Define to 1 if the X Window System is missing or not being used. */
 /* #undef X_DISPLAY_MISSING */

@@ -1,8 +1,8 @@
-.\" Copyright 2004 Glyph & Cog, LLC
-.TH pdftoppm 1 "22 January 2004"
+.\" Copyright 2005-2011 Glyph & Cog, LLC
+.TH pdftoppm 1 "15 August 2011"
 .SH NAME
 pdftoppm \- Portable Document Format (PDF) to Portable Pixmap (PPM)
-converter (version 3.00)
+converter (version 3.03)
 .SH SYNOPSIS
 .B pdftoppm
 [options]
@@ -17,9 +17,9 @@ Graymap (PGM) format, or monochrome image files in Portable Bitmap
 Pdftoppm reads the PDF file,
 .IR PDF-file ,
 and writes one PPM file for each page,
-.IR PPM-root - nnnnnn .ppm,
+.IR PPM-root - number .ppm,
 where
-.I nnnnnn
+.I number
 is the page number.
 .SH OPTIONS
 .TP
@@ -48,13 +48,19 @@ Specifies the X resolution, in DPI.  The default is 150 DPI.
 Specifies the Y resolution, in DPI.  The default is 150 DPI.
 .TP
 .BI \-scale-to " number"
-Scales each page to fit in scale-to*scale-to pixel box.
+Scales the long side of each page (width for landscape pages, height
+for portrait pages) to fit in scale-to pixels. The size of the short
+side will be determined by the aspect ratio of the page.
 .TP
 .BI \-scale-to-x " number"
-Scales each page horizontally to fit in scale-to-x pixels.
+Scales each page horizontally to fit in scale-to-x pixels. If
+scale-to-y is set to -1, the vertical size will determined by the
+aspect ratio of the page.
 .TP
 .BI \-scale-to-y " number"
-Scales each page vertically to fit in scale-to-y pixels.
+Scales each page vertically to fit in scale-to-y pixels. If scale-to-x
+is set to -1, the horizontal size will determined by the aspect ratio
+of the page.
 .TP
 .BI \-x " number"
 Specifies the x-coordinate of the crop area top left corner
@@ -139,9 +145,10 @@ Error related to PDF permissions.
 99
 Other error.
 .SH AUTHOR
-The pdftoppm software and documentation are copyright 1996-2004 Glyph
+The pdftoppm software and documentation are copyright 1996-2011 Glyph
 & Cog, LLC.
 .SH "SEE ALSO"
+.BR pdfdetach (1),
 .BR pdffonts (1),
 .BR pdfimages (1),
 .BR pdfinfo (1),

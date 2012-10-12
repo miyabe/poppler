@@ -1,6 +1,7 @@
 /* poppler-annotation-helper.h: qt interface to poppler
  * Copyright (C) 2006, 2008, Albert Astals Cid <aacid@kde.org>
  * Copyright (C) 2008, Pino Toscano <pino@kde.org>
+ * Copyright (C) 2012, Fabio D'Urso <fabiodurso@hotmail.it>
  * Adapting code from
  *   Copyright (C) 2004 by Enrico Ros <eros.kde@email.it>
  *
@@ -20,6 +21,8 @@
  */
 
 #include <QtCore/QDebug>
+
+#include <Object.h>
 
 class QColor;
 
@@ -42,6 +45,7 @@ class XPDFReader
         static inline void lookupDate( Dict *, char *, QDateTime & dest );
         // transform from user coords to normalized ones using the matrix M
         static inline void transform( double * M, double x, double y, QPointF &res );
+        static inline void invTransform( double * M, const QPointF &p, double &x, double &y );
 };
 
 void XPDFReader::lookupName( Dict * dict, char * type, QString & dest )
@@ -175,34 +179,20 @@ void XPDFReader::transform( double * M, double x, double y, QPointF &res )
     res.setY( M[1] * x + M[3] * y + M[5] );
 }
 
-/** @short Helper classes for CROSSDEPS resolving and DS conversion. */
-struct ResolveRevision
+void XPDFReader::invTransform( double * M, const QPointF &p, double &x, double &y )
 {
-    int           prevAnnotationID; // ID of the annotation to be reparended
-    int           nextAnnotationID; // (only needed for speeding up resolving)
-    Annotation *  nextAnnotation;   // annotation that will act as parent
-    Annotation::RevScope nextScope; // scope of revision (Reply)
-    Annotation::RevType  nextType;  // type of revision (None)
-};
+    const double det = M[0]*M[3] - M[1]*M[2];
+    Q_ASSERT(det != 0);
 
-struct ResolveWindow
-{
-    AnnotPopup *  popup;            // the (maybe shared) window
-    Annotation *  annotation;       // annotation having the popup window
-};
+    const double invM[4] = { M[3]/det, -M[1]/det, -M[2]/det, M[0]/det };
+    const double xt = p.x() - M[4];
+    const double yt = p.y() - M[5];
 
-struct PostProcessText              // this handles a special pdf case conversion
-{
-    Annotation *  textAnnotation;   // a popup text annotation (not FreeText)
-    bool          opened;           // pdf property to convert to window flags
-};
-
-struct PopupWindow
-{
-    Annotation *  dummyAnnotation;  // window properties (in pdf as Annotation)
-    bool          shown;            // converted to Annotation::Hidden flag
-};
+    x = invM[0] * xt + invM[2] * yt;
+    y = invM[1] * xt + invM[3] * yt;
+}
 
 QColor convertAnnotColor( AnnotColor *color );
+AnnotColor* convertQColor( const QColor &color );
 
 }

@@ -18,9 +18,9 @@
 // Copyright (C) 2005, 2006 Kristian Høgsberg <krh@redhat.com>
 // Copyright (C) 2005 Nickolay V. Shmyrev <nshmyrev@yandex.ru>
 // Copyright (C) 2006-2011 Carlos Garcia Campos <carlosgc@gnome.org>
-// Copyright (C) 2008, 2009, 2011 Adrian Johnson <ajohnson@redneon.com>
+// Copyright (C) 2008, 2009, 2011, 2012 Adrian Johnson <ajohnson@redneon.com>
 // Copyright (C) 2008 Michael Vrable <mvrable@cs.ucsd.edu>
-// Copyright (C) 2010, 2011 Thomas Freitag <Thomas.Freitag@alfa.de>
+// Copyright (C) 2010-2012 Thomas Freitag <Thomas.Freitag@alfa.de>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -40,6 +40,7 @@
 #include "TextOutputDev.h"
 #include "GfxState.h"
 
+class PDFDoc;
 class GfxState;
 class GfxPath;
 class Gfx8BitFont;
@@ -107,7 +108,7 @@ public:
   // Does this device use functionShadedFill(), axialShadedFill(), and
   // radialShadedFill()?  If this returns false, these shaded fills
   // will be reduced to a series of other drawing operations.
-#if CAIRO_VERSION == CAIRO_VERSION_ENCODE(1, 11, 2)
+#if CAIRO_VERSION >= CAIRO_VERSION_ENCODE(1, 12, 0)
   virtual GBool useShadedFills(int type) { return type <= 7; }
 #else
   virtual GBool useShadedFills(int type) { return type < 4; }
@@ -158,7 +159,7 @@ public:
   virtual void fill(GfxState *state);
   virtual void eoFill(GfxState *state);
   virtual void clipToStrokePath(GfxState *state);
-  virtual GBool tilingPatternFill(GfxState *state, Catalog *cat, Object *str,
+  virtual GBool tilingPatternFill(GfxState *state, Gfx *gfx, Catalog *cat, Object *str,
 				  double *pmat, int paintType, int tilingType, Dict *resDict,
 				  double *mat, double *bbox,
 				  int x0, int y0, int x1, int y1,
@@ -167,7 +168,7 @@ public:
   virtual GBool axialShadedSupportExtend(GfxState *state, GfxAxialShading *shading);
   virtual GBool radialShadedFill(GfxState *state, GfxRadialShading *shading, double sMin, double sMax);
   virtual GBool radialShadedSupportExtend(GfxState *state, GfxRadialShading *shading);
-#if CAIRO_VERSION == CAIRO_VERSION_ENCODE(1, 11, 2)
+#if CAIRO_VERSION >= CAIRO_VERSION_ENCODE(1, 12, 0)
   virtual GBool gouraudTriangleShadedFill(GfxState *state, GfxGouraudTriangleShading *shading);
   virtual GBool patchMeshShadedFill(GfxState *state, GfxPatchMeshShading *shading);
 #endif
@@ -183,35 +184,26 @@ public:
 		double dx, double dy,
 		double originX, double originY,
 		CharCode code, int nBytes, Unicode *u, int uLen);
+  void beginActualText(GfxState *state, GooString *text);
+  void endActualText(GfxState *state);
 
   virtual GBool beginType3Char(GfxState *state, double x, double y,
 			       double dx, double dy,
 			       CharCode code, Unicode *u, int uLen);
   virtual void endType3Char(GfxState *state);
   virtual void beginTextObject(GfxState *state);
-  virtual GBool deviceHasTextClip(GfxState *state) { return textClipPath && haveCSPattern; }
+  virtual GBool deviceHasTextClip(GfxState *state) { return textClipPath; }
   virtual void endTextObject(GfxState *state);
-
-  // If current colorspace is pattern,
-  // does this device support text in pattern colorspace?
-  virtual GBool supportTextCSPattern(GfxState *state) {
-      return state->getFillColorSpace()->getMode() == csPattern; }
-
-  // If current colorspace is pattern,
-  // need this device special handling for masks in pattern colorspace?
-  virtual GBool fillMaskCSPattern(GfxState * state) {
-      return state->getFillColorSpace()->getMode() == csPattern; }
-
-  virtual void endMaskClip(GfxState *state);
-
-  //----- grouping operators
-  virtual void beginMarkedContent(char *name, Dict *properties);
-  virtual void endMarkedContent(GfxState *state);  
 
   //----- image drawing
   virtual void drawImageMask(GfxState *state, Object *ref, Stream *str,
 			     int width, int height, GBool invert, GBool interpolate,
 			     GBool inlineImg);
+  virtual void setSoftMaskFromImageMask(GfxState *state,
+					Object *ref, Stream *str,
+					int width, int height, GBool invert,
+					GBool inlineImg, double *baseMatrix);
+  virtual void unsetSoftMaskFromImageMask(GfxState *state, double *baseMatrix);
   void drawImageMaskPrescaled(GfxState *state, Object *ref, Stream *str,
 			      int width, int height, GBool invert, GBool interpolate,
 			      GBool inlineImg);
@@ -259,7 +251,7 @@ public:
   //----- special access
   
   // Called to indicate that a new PDF document has been loaded.
-  void startDoc(XRef *xrefA, Catalog *catalogA, CairoFontEngine *fontEngine = NULL);
+  void startDoc(PDFDoc *docA, CairoFontEngine *fontEngine = NULL);
  
   GBool isReverseVideo() { return gFalse; }
   
@@ -281,8 +273,8 @@ protected:
 				     GBool interpolate);
   GBool getStreamData (Stream *str, char **buffer, int *length);
   void setMimeData(Stream *str, Object *ref, cairo_surface_t *image);
-  void fillToStrokePathClip();
-  void alignStrokeCoords(double *x, double *y);
+  void fillToStrokePathClip(GfxState *state);
+  void alignStrokeCoords(GfxSubpath *subpath, int i, double *x, double *y);
 
   GfxRGB fill_color, stroke_color;
   cairo_pattern_t *fill_pattern, *stroke_pattern;
@@ -294,7 +286,7 @@ protected:
   CairoFont *currentFont;
 
   struct StrokePathClip {
-    cairo_path_t *path;
+    GfxPath *path;
     cairo_matrix_t ctm;
     double line_width;
     double *dashes;
@@ -305,8 +297,7 @@ protected:
     double miter;
   } *strokePathClip;
 
-  XRef *xref;			// xref table for current document
-  Catalog *catalog;
+  PDFDoc *doc;			// the current document
 
   static FT_Library ft_lib;
   static GBool ft_lib_initialized;
@@ -341,22 +332,23 @@ protected:
   cairo_pattern_t *group;
   cairo_pattern_t *shape;
   cairo_pattern_t *mask;
+  cairo_matrix_t mask_matrix;
   cairo_surface_t *cairo_shape_surface;
   cairo_t *cairo_shape;
   int knockoutCount;
   struct ColorSpaceStack {
     GBool knockout;
     GfxColorSpace *cs;
+    cairo_matrix_t group_matrix;
     struct ColorSpaceStack *next;
   } * groupColorSpaceStack;
 
   struct MaskStack {
-      cairo_pattern_t *mask;
-      struct MaskStack *next;
+    cairo_pattern_t *mask;
+    cairo_matrix_t mask_matrix;
+    struct MaskStack *next;
   } *maskStack;
 
-  GBool haveCSPattern;	// set if text has been drawn with a
-                        //   clipping render mode because of pattern colorspace
 };
 
 //------------------------------------------------------------------------
@@ -434,7 +426,8 @@ public:
   virtual void stroke(GfxState *state) { }
   virtual void fill(GfxState *state) { }
   virtual void eoFill(GfxState *state) { }
-  virtual GBool tilingPatternFill(GfxState *state, Catalog *cat, Object *str,
+  virtual void clipToStrokePath(GfxState *state) { }
+  virtual GBool tilingPatternFill(GfxState *state, Gfx *gfx, Catalog *cat, Object *str,
 				  double *pmat, int paintType, int tilingType, Dict *resDict,
 				  double *mat, double *bbox,
 				  int x0, int y0, int x1, int y1,

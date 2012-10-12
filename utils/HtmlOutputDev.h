@@ -14,13 +14,15 @@
 // All changes made under the Poppler project to this file are licensed
 // under GPL version 2 or later
 //
-// Copyright (C) 2006, 2007, 2009 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2006, 2007, 2009, 2012 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2008, 2009 Warren Toomey <wkt@tuhs.org>
 // Copyright (C) 2009, 2011 Carlos Garcia Campos <carlosgc@gnome.org>
 // Copyright (C) 2009 Kovid Goyal <kovid@kovidgoyal.net>
 // Copyright (C) 2010 Hib Eris <hib@hiberis.nl>
 // Copyright (C) 2011 Joshua Richardson <jric@chegg.com>
 // Copyright (C) 2011 Stephen Reichling <sreichling@chegg.com>
+// Copyright (C) 2012 Igor Slepchin <igor.redhat@gmail.com>
+// Copyright (C) 2012 Fabio D'Urso <fabiodurso@hotmail.it>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -58,6 +60,8 @@
 
 class GfxState;
 class GooString;
+class PDFDoc;
+class OutlineItem;
 //------------------------------------------------------------------------
 // HtmlString
 //------------------------------------------------------------------------
@@ -153,7 +157,13 @@ public:
     links->AddLink(x);
   }
 
- void dump(FILE *f, int pageNum);
+  // add an image to the current page
+  void addImage(GooString *fname, GfxState *state);
+
+  // number of images on the current page
+  int  getNumImages() { return imgList->getLength(); }
+
+  void dump(FILE *f, int pageNum);
 
   // Clear the page.
   void clear();
@@ -180,12 +190,12 @@ private:
   int fontsPageMarker; 
   HtmlFontAccu *fonts;
   HtmlLinks *links; 
+  GooList   *imgList;
   
   GooString *DocName;
   GooString *imgExt;
   int pageWidth;
   int pageHeight;
-  static int pgNum;
   int firstPage;                // used to begin the numeration of pages
 
   friend class HtmlOutputDev;
@@ -196,7 +206,7 @@ private:
 //------------------------------------------------------------------------
 class HtmlMetaVar {
 public:
-    HtmlMetaVar(char *_name, char *_content);
+    HtmlMetaVar(const char *_name, const char *_content);
     ~HtmlMetaVar();    
     
     GooString* toString();	
@@ -220,7 +230,7 @@ public:
   // 8-bit ISO Latin-1.  <useASCII7> should also be set for Japanese
   // (EUC-JP) text.  If <rawOrder> is true, the text is kept in content
   // stream order.
-  HtmlOutputDev(char *fileName, char *title, 
+  HtmlOutputDev(Catalog *catalogA, char *fileName, char *title, 
 	  char *author,
 	  char *keywords,
 	  char *subject,
@@ -257,12 +267,13 @@ public:
   virtual GBool checkPageSlice(Page *page, double hDPI, double vDPI,
                                int rotate, GBool useMediaBox, GBool crop,
                                int sliceX, int sliceY, int sliceW, int sliceH,
-                               GBool printing, Catalog * catalogA,
+                               GBool printing,
                                GBool (* abortCheckCbk)(void *data) = NULL,
-                               void * abortCheckCbkData = NULL)
+                               void * abortCheckCbkData = NULL,
+                               GBool (*annotDisplayDecideCbk)(Annot *annot, void *user_data) = NULL,
+                               void *annotDisplayDecideCbkData = NULL)
   {
    docPage = page;
-   catalog = catalogA;
    return gTrue;
   }
 
@@ -298,17 +309,26 @@ public:
   int getPageWidth() { return maxPageWidth; }
   int getPageHeight() { return maxPageHeight; }
 
-  GBool dumpDocOutline(Catalog* catalog);
+  GBool dumpDocOutline(PDFDoc* doc);
 
 private:
   // convert encoding into a HTML standard, or encoding->getCString if not
-  // recognized
-  static char* mapEncodingToHtml(GooString* encoding);
+  // recognized. Will delete encoding for you and return a new one
+  // that you have to delete
+  static GooString* mapEncodingToHtml(GooString* encoding);
   void doProcessLink(AnnotLink *link);
-  GooString* getLinkDest(AnnotLink *link,Catalog *catalog);
+  GooString* getLinkDest(AnnotLink *link);
   void dumpMetaVars(FILE *);
   void doFrame(int firstPage);
-  GBool newOutlineLevel(FILE *output, Object *node, Catalog* catalog, int level = 1);
+  GBool newHtmlOutlineLevel(FILE *output, GooList *outlines, Catalog* catalog, int level = 1);
+  void newXmlOutlineLevel(FILE *output, GooList *outlines, Catalog* catalog);
+#ifndef DISABLE_OUTLINE
+  int getOutlinePageNum(OutlineItem *item);
+#endif
+  void drawJpegImage(GfxState *state, Stream *str);
+  void drawPngImage(GfxState *state, Stream *str, int width, int height,
+                    GfxImageColorMap *colorMap, GBool isMask = gFalse);
+  GooString *createImageFileName(const char *ext);
 
   FILE *fContentsFrame;
   FILE *page;                   // html file
@@ -323,8 +343,6 @@ private:
   int pageNum;
   int maxPageWidth;
   int maxPageHeight;
-  static int imgNum;
-  static GooList *imgList;
   GooString *Docname;
   GooString *docTitle;
   GooList *glMetaVars;

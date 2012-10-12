@@ -61,6 +61,8 @@ libjpeg_sources =				\
 
 libjpeg_libs =					\
 	$(LIBJPEG_LIBS)
+libjpeg_includes =				\
+	$(LIBJPEG_CFLAGS)
 
 endif
 
@@ -90,6 +92,8 @@ libjpeg2000_sources =				\
 
 libjpeg2000_libs =				\
 	$(LIBOPENJPEG_LIBS)
+libjpeg2000_includes =				\
+	$(LIBOPENJPEG_CFLAGS)
 
 else
 
@@ -141,7 +145,9 @@ INCLUDES =					\
 	$(splash_includes)			\
 	$(cairo_includes)			\
 	$(arthur_includes)			\
+	$(libjpeg_includes)			\
 	$(libtiff_includes)			\
+	$(libjpeg2000_includes)			\
 	$(libpng_includes)			\
 	$(libcurl_includes)			\
 	$(FREETYPE_CFLAGS)			\
@@ -171,7 +177,7 @@ libpoppler_la_LIBADD =				\
 	$(PTHREAD_LIBS)				\
 	$(win32_libs)
 
-libpoppler_la_LDFLAGS = -version-info 17:0:0 @create_shared_lib@ @auto_import_flags@
+libpoppler_la_LDFLAGS = -version-info 29:0:0 @create_shared_lib@ @auto_import_flags@
 
 if ENABLE_XPDF_HEADERS
 
@@ -245,7 +251,7 @@ poppler_include_HEADERS =	\
 	PSOutputDev.h		\
 	TextOutputDev.h		\
 	SecurityHandler.h	\
-	UTF8.h			\
+	UTF.h			\
 	XpdfPluginAPI.h		\
 	Sound.h
 nodist_poppler_include_HEADERS = poppler-config.h
@@ -311,6 +317,7 @@ libpoppler_la_SOURCES =		\
 	strtok_r.cpp		\
 	UnicodeMap.cc		\
 	UnicodeTypeTable.cc	\
+	UTF.cc                  \
 	ViewerPreferences.cc	\
 	XRef.cc			\
 	PSOutputDev.cc		\

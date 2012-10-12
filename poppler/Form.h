@@ -6,7 +6,7 @@
 //
 // Copyright 2006 Julien Rebetez <julienr@svn.gnome.org>
 // Copyright 2007, 2008, 2011 Carlos Garcia Campos <carlosgc@gnome.org>
-// Copyright 2007-2010 Albert Astals Cid <aacid@kde.org>
+// Copyright 2007-2010, 2012 Albert Astals Cid <aacid@kde.org>
 // Copyright 2010 Mark Riedesel <mark@klowner.com>
 // Copyright 2011 Pino Toscano <pino@kde.org>
 //
@@ -29,9 +29,9 @@ class Dict;
 class Annot;
 class AnnotWidget;
 class Annots;
-class Catalog;
 class LinkAction;
 class GfxResources;
+class PDFDoc;
 
 enum FormFieldType {
   formButton,
@@ -106,7 +106,7 @@ public:
   // decode id and retrieve pageNum and fieldNum
   static void decodeID (unsigned id, unsigned* pageNum, unsigned* fieldNum);
 
-  void createWidgetAnnotation(Catalog *catalog);
+  void createWidgetAnnotation();
   AnnotWidget *getWidgetAnnotation() const { return widget; }
 
 #ifdef DEBUG_FORMS
@@ -114,13 +114,14 @@ public:
 #endif
 
 protected:
-  FormWidget(XRef *xrefA, Object *aobj, unsigned num, Ref aref, FormField *fieldA);
+  FormWidget(PDFDoc *docA, Object *aobj, unsigned num, Ref aref, FormField *fieldA);
 
   AnnotWidget *widget;
   FormField* field;
   FormFieldType type;
   Object obj;
   Ref ref;
+  PDFDoc *doc;
   XRef *xref;
 
   //index of this field in the parent's child list
@@ -143,7 +144,7 @@ protected:
 
 class FormWidgetButton: public FormWidget {
 public:
-  FormWidgetButton(XRef *xrefA, Object *dict, unsigned num, Ref ref, FormField *p);
+  FormWidgetButton(PDFDoc *docA, Object *dict, unsigned num, Ref ref, FormField *p);
   ~FormWidgetButton ();
 
   FormButtonType getButtonType() const;
@@ -152,19 +153,9 @@ public:
   GBool getState ();
 
   char* getOnStr();
-  void setAppearanceState(char *state);
-
-  void setNumSiblingsID (int i);
-  void setSiblingsID (int i, unsigned id) { siblingsID[i] = id; }
-
-  //For radio buttons, return the IDs of the other radio buttons in the same group
-  unsigned* getSiblingsID () const { return siblingsID; }
-  int getNumSiblingsID () const { return numSiblingsID; }
+  void setAppearanceState(const char *state);
 
 protected:
-  unsigned* siblingsID; // IDs of dependent buttons (each button of a radio field has all the others buttons
-                        // of the same field in this array)
-  int numSiblingsID;
   GooString *onStr;
   FormFieldButton *parent;
 };
@@ -175,7 +166,7 @@ protected:
 
 class FormWidgetText: public FormWidget {
 public:
-  FormWidgetText(XRef *xrefA, Object *dict, unsigned num, Ref ref, FormField *p);
+  FormWidgetText(PDFDoc *docA, Object *dict, unsigned num, Ref ref, FormField *p);
   //return the field's content (UTF16BE)
   GooString* getContent() ;
   //return a copy of the field's content (UTF16BE)
@@ -202,7 +193,7 @@ protected:
 
 class FormWidgetChoice: public FormWidget {
 public:
-  FormWidgetChoice(XRef *xrefA, Object *dict, unsigned num, Ref ref, FormField *p);
+  FormWidgetChoice(PDFDoc *docA, Object *dict, unsigned num, Ref ref, FormField *p);
   ~FormWidgetChoice();
 
   int getNumChoices();
@@ -242,7 +233,7 @@ protected:
 
 class FormWidgetSignature: public FormWidget {
 public:
-  FormWidgetSignature(XRef *xrefA, Object *dict, unsigned num, Ref ref, FormField *p);
+  FormWidgetSignature(PDFDoc *docA, Object *dict, unsigned num, Ref ref, FormField *p);
 protected:
   FormFieldSignature *parent;
 };
@@ -256,7 +247,7 @@ protected:
 
 class FormField {
 public:
-  FormField(XRef* xrefa, Object *aobj, const Ref& aref, FormField *parent, std::set<int> *usedParents, FormFieldType t=formUndef);
+  FormField(PDFDoc *docA, Object *aobj, const Ref& aref, FormField *parent, std::set<int> *usedParents, FormFieldType t=formUndef);
 
   virtual ~FormField();
 
@@ -280,12 +271,13 @@ public:
   GooString *getFullyQualifiedName();
 
   FormWidget* findWidgetByRef (Ref aref);
+  int getNumWidgets() { return terminal ? numChildren : 0; }
   FormWidget *getWidget(int i) { return terminal ? widgets[i] : NULL; }
 
   // only implemented in FormFieldButton
   virtual void fillChildrenSiblingsID ();
 
-  void createWidgetAnnotations(Catalog *catalog);
+  void createWidgetAnnotations();
 
 #ifdef DEBUG_FORMS
   void printTree(int indent = 0);
@@ -301,6 +293,7 @@ public:
   Ref ref;
   bool terminal;
   Object obj;
+  PDFDoc *doc;
   XRef *xref;
   FormField **children;
   FormField *parent;
@@ -330,7 +323,7 @@ private:
 
 class FormFieldButton: public FormField {
 public:
-  FormFieldButton(XRef *xrefA, Object *dict, const Ref& ref, FormField *parent, std::set<int> *usedParents);
+  FormFieldButton(PDFDoc *docA, Object *dict, const Ref& ref, FormField *parent, std::set<int> *usedParents);
 
   FormButtonType getButtonType () { return btype; }
 
@@ -343,6 +336,13 @@ public:
   char *getAppearanceState() { return appearanceState.isName() ? appearanceState.getName() : NULL; }
 
   void fillChildrenSiblingsID ();
+  
+  void setNumSiblings (int num);
+  void setSibling (int i, FormFieldButton *id) { siblings[i] = id; }
+
+  //For radio buttons, return the fields of the other radio buttons in the same group
+  FormFieldButton* getSibling (int i) const { return siblings[i]; }
+  int getNumSiblings () const { return numSiblings; }
 
 #ifdef DEBUG_FORMS
   void print(int indent = 0);
@@ -351,6 +351,10 @@ public:
   virtual ~FormFieldButton();
 protected:
   void updateState(char *state);
+
+  FormFieldButton** siblings; // IDs of dependent buttons (each button of a radio field has all the others buttons
+                               // of the same field in this array)
+  int numSiblings;
 
   FormButtonType btype;
   int size;
@@ -365,7 +369,7 @@ protected:
 
 class FormFieldText: public FormField {
 public:
-  FormFieldText(XRef *xrefA, Object *dict, const Ref& ref, FormField *parent, std::set<int> *usedParents);
+  FormFieldText(PDFDoc *docA, Object *dict, const Ref& ref, FormField *parent, std::set<int> *usedParents);
   
   GooString* getContent () { return content; }
   GooString* getContentCopy ();
@@ -403,7 +407,7 @@ protected:
 
 class FormFieldChoice: public FormField {
 public:
-  FormFieldChoice(XRef *xrefA, Object *aobj, const Ref& ref, FormField *parent, std::set<int> *usedParents);
+  FormFieldChoice(PDFDoc *docA, Object *aobj, const Ref& ref, FormField *parent, std::set<int> *usedParents);
 
   virtual ~FormFieldChoice();
 
@@ -472,7 +476,7 @@ protected:
 
 class FormFieldSignature: public FormField {
 public:
-  FormFieldSignature(XRef *xrefA, Object *dict, const Ref& ref, FormField *parent, std::set<int> *usedParents);
+  FormFieldSignature(PDFDoc *docA, Object *dict, const Ref& ref, FormField *parent, std::set<int> *usedParents);
 
   virtual ~FormFieldSignature();
 
@@ -489,16 +493,16 @@ public:
 
 class Form {
 public:
-  Form(XRef *xrefA, Object* acroForm);
+  Form(PDFDoc *docA, Object* acroForm);
 
   ~Form();
 
   // Look up an inheritable field dictionary entry.
-  static Object *fieldLookup(Dict *field, char *key, Object *obj);
+  static Object *fieldLookup(Dict *field, const char *key, Object *obj);
   
   /* Creates a new Field of the type specified in obj's dict.
      used in Form::Form and FormField::FormField */
-  static FormField *createFieldFromDict (Object* obj, XRef *xref, const Ref& aref, FormField *parent, std::set<int> *usedParents);
+  static FormField *createFieldFromDict (Object* obj, PDFDoc *docA, const Ref& aref, FormField *parent, std::set<int> *usedParents);
 
   Object *getObj () const { return acroForm; }
   GBool getNeedAppearances () const { return needAppearances; }
@@ -511,11 +515,12 @@ public:
 
   FormWidget* findWidgetByRef (Ref aref);
 
-  void postWidgetsLoad(Catalog *catalog);
+  void postWidgetsLoad();
 private:
   FormField** rootFields;
   int numFields;
   int size;
+  PDFDoc *doc;
   XRef* xref;
   Object *acroForm;
   GBool needAppearances;

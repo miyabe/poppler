@@ -1,5 +1,5 @@
 ACLOCAL_AMFLAGS = -I m4
-DISTCHECK_CONFIGURE_FLAGS = --enable-gtk-doc
+DISTCHECK_CONFIGURE_FLAGS = --enable-gtk-doc --with-testdatadir=$(TESTDATADIR)
 
 if BUILD_SPLASH_OUTPUT
 splash_subdir = splash
@@ -29,7 +29,7 @@ if BUILD_UTILS
 utils_subdir = utils
 endif
 
-SUBDIRS = goo fofi $(splash_subdir) poppler $(utils_subdir) $(glib_subdir) $(qt_subdir) test $(qt4_subdir) $(cpp_subdir)
+SUBDIRS = goo fofi $(splash_subdir) poppler $(utils_subdir) $(glib_subdir) test $(qt4_subdir) $(cpp_subdir)
 
 EXTRA_DIST =					\
 	README-XPDF				\
@@ -76,6 +76,7 @@ EXTRA_DIST +=							\
 	cmake/modules/FindGTK.cmake				\
 	cmake/modules/FindIconv.cmake				\
 	cmake/modules/FindLCMS.cmake				\
+	cmake/modules/FindLCMS2.cmake				\
 	cmake/modules/FindQt4.cmake				\
 	cmake/modules/GObjectIntrospectionMacros.cmake		\
 	cmake/modules/MacroBoolTo01.cmake			\

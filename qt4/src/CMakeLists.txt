@@ -25,11 +25,12 @@ set(poppler_qt4_SRCS
   poppler-sound.cc
   poppler-textbox.cc
   poppler-page-transition.cc
+  poppler-media.cc
   ${CMAKE_SOURCE_DIR}/poppler/ArthurOutputDev.cc
 )
 qt4_automoc(${poppler_qt4_SRCS})
 add_library(poppler-qt4 SHARED ${poppler_qt4_SRCS})
-set_target_properties(poppler-qt4 PROPERTIES VERSION 3.7.0 SOVERSION 3)
+set_target_properties(poppler-qt4 PROPERTIES VERSION 4.1.0 SOVERSION 4)
 target_link_libraries(poppler-qt4 poppler ${QT4_QTCORE_LIBRARY} ${QT4_QTGUI_LIBRARY} ${QT4_QTXML_LIBRARY})
 if(MSVC)
 target_link_libraries(poppler-qt4 poppler ${poppler_LIBS})
@@ -44,5 +45,6 @@ install(FILES
   poppler-optcontent.h
   poppler-export.h
   poppler-page-transition.h
+  poppler-media.h
   DESTINATION include/poppler/qt4)
 

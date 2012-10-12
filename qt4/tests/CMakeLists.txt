@@ -1,4 +1,5 @@
 add_definitions(${QT4_DEFINITIONS})
+add_definitions(-DTESTDATADIR=\"${TESTDATADIR}\")
 
 include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}
@@ -55,6 +56,7 @@ qt4_add_qtest(check_password check_password.cpp)
 qt4_add_qtest(check_permissions check_permissions.cpp)
 qt4_add_qtest(check_search check_search.cpp)
 qt4_add_qtest(check_actualtext check_actualtext.cpp)
+qt4_add_qtest(check_lexer check_lexer.cpp)
 if (NOT WIN32)
   qt4_add_qtest(check_strings check_strings.cpp)
 endif (NOT WIN32)
