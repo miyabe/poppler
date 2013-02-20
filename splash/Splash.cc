@@ -14,7 +14,7 @@
 // Copyright (C) 2005-2012 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2005 Marco Pesenti Gritti <mpg@redhat.com>
 // Copyright (C) 2010-2012 Thomas Freitag <Thomas.Freitag@alfa.de>
-// Copyright (C) 2010 Christian Feuersänger <cfeuersaenger@googlemail.com>
+// Copyright (C) 2010 Christian Feuersï¿½nger <cfeuersaenger@googlemail.com>
 // Copyright (C) 2011, 2012 William Bader <williambader@hotmail.com>
 // Copyright (C) 2012 Markus Trippelsdorf <markus@trippelsdorf.de>
 //
@@ -1259,6 +1259,10 @@ void Splash::pipeRunAADeviceN8(SplashPipe *pipe) {
 #endif
 
 inline void Splash::pipeSetXY(SplashPipe *pipe, int x, int y) {
+  // @FIXED by miyabe
+  if (x < 0) x = 0;
+  if (y < 0) y = 0;
+  
   pipe->x = x;
   pipe->y = y;
   if (state->softMask) {
