@@ -411,10 +411,10 @@ int main(int argc, char *argv[]) {
     if (ppmRoot != NULL) {
       const char *ext = png ? "png" : (jpeg || jpegcmyk) ? "jpg" : tiff ? "tif" : mono ? "pbm" : gray ? "pgm" : "ppm";
       if (singleFile) {
-        ppmFile = new char[strlen(ppmRoot) + 1 + strlen(ext) + 1];
+        ppmFile = new char[strlen(ppmRoot) + 1 + strlen(ext) + 2];
         sprintf(ppmFile, "%s.%s", ppmRoot, ext);
       } else {
-        ppmFile = new char[strlen(ppmRoot) + 1 + pg_num_len + 1 + strlen(ext) + 1];
+        ppmFile = new char[strlen(ppmRoot) + 1 + pg_num_len + 1 + strlen(ext) + 2];
         sprintf(ppmFile, "%s%05d.%s", ppmRoot, pg, ext);
       }
       savePageSlice(doc, splashOut, pg, x, y, w, h, pg_w, pg_h, ppmFile);
