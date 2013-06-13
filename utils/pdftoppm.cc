@@ -389,20 +389,36 @@ int main(int argc, char *argv[]) {
     if (scaleTo != 0) {
       resolution = (72.0 * scaleTo) / (pg_w > pg_h ? pg_w : pg_h);
       x_resolution = y_resolution = resolution;
+      if (pg_w > pg_h) {
+        pg_w = scaleTo;
+ 	  	pg_h = pg_h * (y_resolution / 72.0);
+      }
+      else {
+        pg_h = scaleTo;
+	  	pg_w = pg_w * (x_resolution / 72.0);
+      }
+    } else if (x_scaleTo <= 0 && y_scaleTo <= 0) {
+      pg_w = pg_w * (x_resolution / 72.0);
+      pg_h = pg_h * (y_resolution / 72.0);
     } else {
       if (x_scaleTo > 0) {
         x_resolution = (72.0 * x_scaleTo) / pg_w;
-        if (y_scaleTo == -1)
+        pg_w = x_scaleTo;
+        if (y_scaleTo == -1) {
           y_resolution = x_resolution;
+          pg_h = pg_h * (y_resolution / 72.0);
+        }
       }
       if (y_scaleTo > 0) {
         y_resolution = (72.0 * y_scaleTo) / pg_h;
-        if (x_scaleTo == -1)
+        pg_h = y_scaleTo;
+        if (x_scaleTo == -1) {
           x_resolution = y_resolution;
+          pg_w = pg_w * (x_resolution / 72.0);
+        }
       }
     }
-    pg_w = pg_w * (x_resolution / 72.0);
-    pg_h = pg_h * (y_resolution / 72.0);
+    
     if ((doc->getPageRotate(pg) == 90) || (doc->getPageRotate(pg) == 270)) {
       tmp = pg_w;
       pg_w = pg_h;
