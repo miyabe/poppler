@@ -33,3 +33,5 @@ poppler-qt4-uninstalled.pc
 poppler-splash-uninstalled.pc
 poppler-uninstalled.pc
 /local
+/compile
+/test-driver
