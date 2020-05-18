@@ -41,7 +41,7 @@ Generate Level 1 PostScript.  The resulting PostScript files will be
 significantly larger (if they contain images), but will print on Level
 1 printers.  This also converts all images to black and white.  No
 more than one of the PostScript level options (\-level1, \-level1sep,
-\-level2, \-level2sep, \-level3, \-level3Sep) may be given.
+\-level2, \-level2sep, \-level3, \-level3sep) may be given.
 .TP
 .B \-level1sep
 Generate Level 1 separable PostScript.  All colors are converted to
@@ -61,33 +61,22 @@ handle custom (spot) colors.
 Generate Level 3 PostScript.  This enables all Level 2 features plus
 CID font embedding.
 .TP
-.B \-level3Sep
+.B \-level3sep
 Generate Level 3 separable PostScript.  The separation handling is the
-same as for \-level2Sep.
-.TP
-.B \-origpagesizes
-Generate a PostScript file with variable page sizes and orientations,
-taking for each page the size of the original page in the PDF file. 
-The PostScript file contains "<</PageSize [WIDTH HEIGHT]>> setpagedevice"
-lines in each page header, so that the paper input tray gets correctly
-changed on the printer. This option should be used when pdftops is used
-as a print filter. Any specification of the page size via \-paper,
-\-paperw, or \-paperh will get overridden as long as each page of the
-PDF file has a defined paper size.  No more than one of the mode options
-(\-origpagesizes, \-eps, \-form) may be given.
+same as for \-level2sep.
 .TP
 .B \-eps
 Generate an Encapsulated PostScript (EPS) file.  An EPS file contains
 a single image, so if you use this option with a multi-page PDF file,
 you must use \-f and \-l to specify a single page.  No more than one of
-the mode options (\-origpagesizes, \-eps, \-form) may be given.
+the mode options (\-eps, \-form) may be given.
 .TP
 .B \-form
 Generate a PostScript form which can be imported by software that
 understands forms.  A form contains a single page, so if you use this
 option with a multi-page PDF file, you must use \-f and \-l to specify a
 single page.  The \-level1 option cannot be used with \-form.  No more
-than one of the mode options (\-origpagesizes, \-eps, \-form) may be
+than one of the mode options (\-eps, \-form) may be
 given.
 .TP
 .B \-opi
@@ -139,22 +128,37 @@ substituted with the closest "Helvetica", "Times-Roman", or "Courier" font.
 This option passes references to non-embedded fonts
 through to the PostScript file.
 .TP
+.BI \-aaRaster " yes | no"
+Enable or disable raster anti-aliasing.  This defaults to "no".
+pdftops may need to rasterize transparencies and pattern image masks in the PDF.
+If the PostScript will be printed, leave \-aaRaster disabled and set \-r to the resolution of the printer.
+If the PostScript will be viewed, enabling \-aaRaster may make rasterized text easier to read.
+.TP
+.B \-optimizecolorspace
+By default, bitmap images in the PDF pass through to the output PostScript
+in their original color space, which produces predictable results.
+This option converts RGB and CMYK images into Gray images
+if every pixel of the image has equal components.
+This can fix problems when doing color separations of PDFs
+that contain embedded black and white images encoded as RGB.
+.TP
 .B \-preload
 preload images and forms
 .TP
 .BI \-paper " size"
 Set the paper size to one of "letter", "legal", "A4", or "A3".  This
-can also be set to "match", which will set the paper size to match the
-size specified in the PDF file. \-origpagesizes overrides this setting
-if the PDF file has defined page sizes.
+can also be set to "match", which will set the paper size of each page to match the
+size specified in the PDF file. If none the \-paper, \-paperw, or \-paperh
+options are specified the default is to match the paper size.
 .TP
 .BI \-paperw " size"
-Set the paper width, in points. \-origpagesizes overrides this setting
-if the PDF file has defined page sizes.
+Set the paper width, in points.
 .TP
 .BI \-paperh " size"
-Set the paper height, in points. \-origpagesizes overrides this setting
-if the PDF file has defined page sizes.
+Set the paper height, in points.
+.TP
+.B \-origpagesizes
+This option is the same as "\-paper match".
 .TP
 .B \-nocrop
 By default, output is cropped to the CropBox specified in the PDF
@@ -183,6 +187,9 @@ bypass all security restrictions.
 .TP
 .BI \-upw " password"
 Specify the user password for the PDF file.
+.TP
+.B \-overprint
+Enable overprinting.
 .TP
 .B \-q
 Don't print any messages or errors.
@@ -225,3 +232,6 @@ Cog, LLC.
 .BR pdftohtml (1),
 .BR pdftoppm (1),
 .BR pdftotext (1)
+.BR pdfseparate (1),
+.BR pdfsig (1),
+.BR pdfunite (1)

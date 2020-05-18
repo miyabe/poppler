@@ -30,7 +30,7 @@ pgd_info_add_permissions (GtkGrid            *table,
 	GtkWidget *label, *hbox, *vbox;
 	GtkWidget *checkbox;
 
-	label = gtk_label_new (NULL);
+	label = gtk_label_new (nullptr);
 	g_object_set (G_OBJECT (label), "xalign", 0.0, NULL);
 	gtk_label_set_markup (GTK_LABEL (label), "<b>Permissions:</b>");
 	gtk_grid_attach (GTK_GRID (table), label, 0, *row, 1, 1);
@@ -110,13 +110,13 @@ pgd_info_add_metadata (GtkGrid     *table,
 	GtkWidget     *textview, *swindow;
 	GtkTextBuffer *buffer;
 
-	label = gtk_label_new (NULL);
+	label = gtk_label_new (nullptr);
 	g_object_set (G_OBJECT (label), "xalign", 0.0, NULL);
 	gtk_label_set_markup (GTK_LABEL (label), "<b>Metadata:</b>");
 	gtk_grid_attach (GTK_GRID (table), label, 0, *row, 1, 1);
 	gtk_widget_show (label);
 
-	swindow = gtk_scrolled_window_new (NULL, NULL);
+	swindow = gtk_scrolled_window_new (nullptr, nullptr);
 	gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (swindow),
 					GTK_POLICY_AUTOMATIC,
 					GTK_POLICY_AUTOMATIC);
@@ -143,7 +143,7 @@ pgd_info_create_widget (PopplerDocument *document)
 {
 	GtkWidget *vbox;
 	GtkWidget *label;
-	GtkWidget *frame, *alignment, *table;
+	GtkWidget *frame, *table;
 	gchar     *str;
 	gchar     *title, *format, *author, *subject;
 	gchar     *keywords, *creator, *producer;
@@ -184,25 +184,29 @@ pgd_info_create_widget (PopplerDocument *document)
 	enum_value = g_enum_get_value ((GEnumClass *) g_type_class_ref (POPPLER_TYPE_BACKEND), backend);
 	str = g_strdup_printf ("<span weight='bold' size='larger'>Poppler %s (%s)</span>",
 			       poppler_get_version (), enum_value->value_name);
-	label = gtk_label_new (NULL);
+	label = gtk_label_new (nullptr);
 	gtk_label_set_markup (GTK_LABEL (label), str);
 	g_free (str);
 	gtk_box_pack_start (GTK_BOX (vbox), label, FALSE, TRUE, 12);
 	gtk_widget_show (label);
 
-	frame = gtk_frame_new (NULL);
+	frame = gtk_frame_new (nullptr);
 	gtk_frame_set_shadow_type (GTK_FRAME (frame), GTK_SHADOW_NONE);
-	label = gtk_label_new (NULL);
+	label = gtk_label_new (nullptr);
 	gtk_label_set_markup (GTK_LABEL (label), "<b>Document properties</b>");
 	gtk_frame_set_label_widget (GTK_FRAME (frame), label);
 	gtk_widget_show (label);
-	
-	alignment = gtk_alignment_new (0.5, 0.5, 1, 1);
-	gtk_alignment_set_padding (GTK_ALIGNMENT (alignment), 5, 5, 12, 5);
-	gtk_container_add (GTK_CONTAINER (frame), alignment);
-	gtk_widget_show (alignment);
 
 	table = gtk_grid_new ();
+	gtk_widget_set_margin_top (table, 5);
+	gtk_widget_set_margin_bottom (table, 5);
+#if GTK_CHECK_VERSION(3, 12, 0)
+	gtk_widget_set_margin_start (table, 12);
+	gtk_widget_set_margin_end (table, 5);
+#else
+	gtk_widget_set_margin_left (table, 12);
+	gtk_widget_set_margin_right (table, 5);
+#endif
 	gtk_grid_set_column_spacing (GTK_GRID (table), 6);
 	gtk_grid_set_row_spacing (GTK_GRID (table), 6);
 
@@ -261,7 +265,7 @@ pgd_info_create_widget (PopplerDocument *document)
 
 	/* TODO: view_prefs */
 
-	gtk_container_add (GTK_CONTAINER (alignment), table);
+	gtk_container_add (GTK_CONTAINER (frame), table);
 	gtk_widget_show (table);
 
 	gtk_box_pack_start (GTK_BOX (vbox), frame, TRUE, TRUE, 0);

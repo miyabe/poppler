@@ -48,6 +48,9 @@ tagged (yes/no)
 form (AcroForm / XFA / none)
 .RE
 .RS
+javascript (yes/no)
+.RE
+.RS
 page count
 .RE
 .RS
@@ -71,6 +74,8 @@ PDF version
 .RS
 metadata (only if requested)
 .RE
+.PP
+The options \-listenc, \-meta, \-js, \-struct, and \-struct-text only print the requested information. The 'Info' dictionary and related data listed above is not printed. At most one of these five options may be used.
 .SH OPTIONS
 .TP
 .BI \-f " number"
@@ -90,8 +95,27 @@ TrimBox, and ArtBox.
 Prints document-level metadata.  (This is the "Metadata" stream from
 the PDF file's Catalog object.)
 .TP
+.B \-js
+Prints all JavaScript in the PDF.
+.TP
+.B \-struct
+Prints the logical document structure of a Tagged-PDF file.
+.TP
+.B \-struct-text
+Print the textual content along with the document structure of a Tagged-PDF
+file.  Note that extracting text this way might be slow for big PDF files.
+(Implies
+.BR \-struct .)
+.TP
+.B \-isodates
+Prints dates in ISO-8601 format (including the time zone).
+.TP
 .B \-rawdates
 Prints the raw (undecoded) date strings, directly from the PDF file.
+.TP
+.B \-dests
+Print a list of all named destinations. If a page range is specified using "\-f" and "\-l", only
+destinations in the page range are listed.
 .TP
 .BI \-enc " encoding-name"
 Sets the encoding to use for text output. This defaults to "UTF-8".
@@ -144,3 +168,6 @@ Cog, LLC.
 .BR pdftoppm (1),
 .BR pdftops (1),
 .BR pdftotext (1)
+.BR pdfseparate (1),
+.BR pdfsig (1),
+.BR pdfunite (1)

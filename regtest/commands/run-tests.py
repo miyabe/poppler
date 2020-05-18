@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+from __future__ import absolute_import, division, print_function
 
 from commands import Command, register_command
 from TestRun import TestRun
@@ -39,6 +40,9 @@ class RunTests(Command):
         parser.add_argument('-o', '--out-dir',
                             action = 'store', dest = 'out_dir', default = os.path.join(tempfile.gettempdir(), 'out'),
                             help = 'Directory where test results will be created')
+        parser.add_argument('--docs-dir',
+                            action = 'store', dest = 'docs_dir',
+                            help = 'Base documents directory')
         parser.add_argument('--keep-results',
                             action = 'store_true', dest = 'keep_results', default = False,
                             help = 'Do not remove result files for passing tests')
@@ -48,7 +52,11 @@ class RunTests(Command):
         parser.add_argument('--update-refs',
                             action = 'store_true', dest = 'update_refs', default = False,
                             help = 'Update references for failed tests')
-        parser.add_argument('tests')
+        parser.add_argument('--exit-after-n-failures',
+                            action = 'store', dest = 'max_failures', type=int, default = None,
+                            help = 'Exit after N failures. Ignored if --update-refs is present too')
+        parser.add_argument('tests', metavar = 'TEST', nargs = '+',
+                            help = 'Tests directory or individual test to run')
 
     def run(self, options):
         config = Config()
@@ -57,18 +65,30 @@ class RunTests(Command):
         config.update_refs = options['update_refs']
 
         t = Timer()
-        doc = options['tests']
-        if os.path.isdir(doc):
-            docs_dir = doc
-        else:
-            docs_dir = os.path.dirname(doc)
+        docs = options['tests']
+        docs_dir = options['docs_dir']
 
-        tests = TestRun(docs_dir, options['refs_dir'], options['out_dir'])
-        if doc == docs_dir:
-            tests.run_tests()
+        if len(docs) == 1:
+            if os.path.isdir(docs[0]):
+                if docs_dir is None:
+                    docs_dir = docs[0]
+                if docs_dir == docs[0]:
+                    docs = []
+            else:
+                if docs_dir is None:
+                    docs_dir = os.path.dirname(docs[0])
         else:
-            tests.run_test(os.path.basename(doc))
+            if docs_dir is None:
+                docs_dir = os.path.commonprefix(docs).rpartition(os.path.sep)[0]
+
+        max_failures = None
+        if not config.update_refs:
+            max_failures = options['max_failures']
+        tests = TestRun(docs_dir, options['refs_dir'], options['out_dir'], max_failures)
+        status = tests.run_tests(docs)
         tests.summary()
         get_printer().printout_ln("Tests run in %s" % (t.elapsed_str()))
+
+        return status
 
 register_command('run-tests', RunTests)

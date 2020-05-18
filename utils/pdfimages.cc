@@ -15,10 +15,13 @@
 // All changes made under the Poppler project to this file are licensed
 // under GPL version 2 or later
 //
-// Copyright (C) 2007-2008, 2010 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2007-2008, 2010, 2018 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2010 Hib Eris <hib@hiberis.nl>
 // Copyright (C) 2010 Jakob Voss <jakob.voss@gbv.de>
-// Copyright (C) 2012 Adrian Johnson <ajohnson@redneon.com>
+// Copyright (C) 2012, 2013, 2017 Adrian Johnson <ajohnson@redneon.com>
+// Copyright (C) 2013 Suzuki Toshiya <mpsuzuki@hiroshima-u.ac.jp>
+// Copyright (C) 2018 Adam Reichold <adam.reichold@t-online.de>
+// Copyright (C) 2019 Oliver Sander <oliver.sander@tu-dresden.de>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -27,10 +30,10 @@
 
 #include "config.h"
 #include <poppler-config.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <stddef.h>
-#include <string.h>
+#include <cstdio>
+#include <cstdlib>
+#include <cstddef>
+#include <cstring>
 #include "parseargs.h"
 #include "goo/GooString.h"
 #include "goo/gmem.h"
@@ -46,25 +49,48 @@
 #include "PDFDocFactory.h"
 #include "ImageOutputDev.h"
 #include "Error.h"
+#include "Win32Console.h"
 
 static int firstPage = 1;
 static int lastPage = 0;
-static GBool listImages = gFalse;
-static GBool dumpJPEG = gFalse;
-static GBool pageNames = gFalse;
+static bool listImages = false;
+static bool enablePNG = false;
+static bool enableTiff = false;
+static bool dumpJPEG = false;
+static bool dumpJP2 = false;
+static bool dumpJBIG2 = false;
+static bool dumpCCITT = false;
+static bool allFormats = false;
+static bool pageNames = false;
 static char ownerPassword[33] = "\001";
 static char userPassword[33] = "\001";
-static GBool quiet = gFalse;
-static GBool printVersion = gFalse;
-static GBool printHelp = gFalse;
+static bool quiet = false;
+static bool printVersion = false;
+static bool printHelp = false;
 
 static const ArgDesc argDesc[] = {
   {"-f",      argInt,      &firstPage,     0,
    "first page to convert"},
   {"-l",      argInt,      &lastPage,      0,
    "last page to convert"},
+#ifdef ENABLE_LIBPNG
+  {"-png",      argFlag,     &enablePNG,      0,
+   "change the default output format to PNG"},
+#endif
+#ifdef ENABLE_LIBTIFF
+  {"-tiff",      argFlag,     &enableTiff,      0,
+   "change the default output format to TIFF"},
+#endif
   {"-j",      argFlag,     &dumpJPEG,      0,
    "write JPEG images as JPEG files"},
+  {"-jp2",      argFlag,     &dumpJP2,      0,
+   "write JPEG2000 images as JP2 files"},
+  {"-jbig2",      argFlag,     &dumpJBIG2,      0,
+   "write JBIG2 images as JBIG2 files"},
+  {"-ccitt",      argFlag,     &dumpCCITT,      0,
+   "write CCITT images as CCITT files"},
+  {"-all",      argFlag,     &allFormats,    0,
+   "equivalent to -png -tiff -j -jp2 -jbig2 -ccitt"},
   {"-list",   argFlag,     &listImages,      0,
    "print list of images instead of saving"},
   {"-opw",    argString,   ownerPassword,  sizeof(ownerPassword),
@@ -85,18 +111,19 @@ static const ArgDesc argDesc[] = {
    "print usage information"},
   {"-?",      argFlag,     &printHelp,     0,
    "print usage information"},
-  {NULL}
+  {}
 };
 
 int main(int argc, char *argv[]) {
   PDFDoc *doc;
   GooString *fileName;
-  char *imgRoot = NULL;
+  char *imgRoot = nullptr;
   GooString *ownerPW, *userPW;
   ImageOutputDev *imgOut;
-  GBool ok;
+  bool ok;
   int exitCode;
 
+  Win32Console win32Console(&argc, &argv);
   exitCode = 99;
 
   // parse args
@@ -117,7 +144,7 @@ int main(int argc, char *argv[]) {
     imgRoot = argv[2];
 
   // read config file
-  globalParams = new GlobalParams();
+  globalParams = std::make_unique<GlobalParams>();
   if (quiet) {
     globalParams->setErrQuiet(quiet);
   }
@@ -126,12 +153,12 @@ int main(int argc, char *argv[]) {
   if (ownerPassword[0] != '\001') {
     ownerPW = new GooString(ownerPassword);
   } else {
-    ownerPW = NULL;
+    ownerPW = nullptr;
   }
   if (userPassword[0] != '\001') {
     userPW = new GooString(userPassword);
   } else {
-    userPW = NULL;
+    userPW = nullptr;
   }
   if (fileName->cmp("-") == 0) {
       delete fileName;
@@ -166,12 +193,33 @@ int main(int argc, char *argv[]) {
     firstPage = 1;
   if (lastPage < 1 || lastPage > doc->getNumPages())
     lastPage = doc->getNumPages();
+  if (lastPage < firstPage) {
+    error(errCommandLine, -1,
+          "Wrong page range given: the first page ({0:d}) can not be after the last page ({1:d}).",
+          firstPage, lastPage);
+    goto err1;
+  }
 
   // write image files
-  imgOut = new ImageOutputDev(imgRoot, pageNames, dumpJPEG, listImages);
+  imgOut = new ImageOutputDev(imgRoot, pageNames, listImages);
   if (imgOut->isOk()) {
-      doc->displayPages(imgOut, firstPage, lastPage, 72, 72, 0,
-			gTrue, gFalse, gFalse);
+    if (allFormats) {
+      imgOut->enablePNG(true);
+      imgOut->enableTiff(true);
+      imgOut->enableJpeg(true);
+      imgOut->enableJpeg2000(true);
+      imgOut->enableJBig2(true);
+      imgOut->enableCCITT(true);
+    } else {
+      imgOut->enablePNG(enablePNG);
+      imgOut->enableTiff(enableTiff);
+      imgOut->enableJpeg(dumpJPEG);
+      imgOut->enableJpeg2000(dumpJP2);
+      imgOut->enableJBig2(dumpJBIG2);
+      imgOut->enableCCITT(dumpCCITT);
+    }
+    doc->displayPages(imgOut, firstPage, lastPage, 72, 72, 0,
+                      true, false, false);
   }
   delete imgOut;
 
@@ -180,12 +228,7 @@ int main(int argc, char *argv[]) {
   // clean up
  err1:
   delete doc;
-  delete globalParams;
  err0:
-
-  // check for memory leaks
-  Object::memCheck(stderr);
-  gMemReport(stderr);
 
   return exitCode;
 }

@@ -265,7 +265,11 @@ pgd_layers_create_viewer (PgdLayersDemo *demo)
 	swindow = gtk_scrolled_window_new (NULL, NULL);
 	gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (swindow),
 					GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+#if GTK_CHECK_VERSION(3, 7, 8)
+	gtk_container_add(GTK_CONTAINER(swindow), demo->darea);
+#else
 	gtk_scrolled_window_add_with_viewport (GTK_SCROLLED_WINDOW (swindow), demo->darea);
+#endif
 	gtk_widget_show (demo->darea);
 
 	gtk_box_pack_start (GTK_BOX (vbox), swindow, TRUE, TRUE, 0);
@@ -373,7 +377,6 @@ pgd_layers_create_widget (PopplerDocument *document)
 	GtkWidget        *treeview;
 	GtkTreeModel     *model;
 	GtkCellRenderer  *renderer;
-	GtkTreeSelection *selection;
 	GtkWidget        *hpaned, *viewer;
 
 	demo = g_new0 (PgdLayersDemo, 1);

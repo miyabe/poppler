@@ -17,10 +17,9 @@
  */
 
 #include "config.h"
-#include <math.h>
+#include <cmath>
 
 #ifndef __GI_SCANNER__
-#include <goo/GooList.h>
 #include <GlobalParams.h>
 #include <PDFDoc.h>
 #include <Outline.h>
@@ -60,7 +59,7 @@ _poppler_page_new (PopplerDocument *document, Page *page, int index)
 
   g_return_val_if_fail (POPPLER_IS_DOCUMENT (document), NULL);
 
-  poppler_page = (PopplerPage *) g_object_new (POPPLER_TYPE_PAGE, NULL, NULL);
+  poppler_page = (PopplerPage *) g_object_new (POPPLER_TYPE_PAGE, nullptr, NULL);
   poppler_page->document = (PopplerDocument *) g_object_ref (document);
   poppler_page->page = page;
   poppler_page->index = index;
@@ -74,9 +73,9 @@ poppler_page_finalize (GObject *object)
   PopplerPage *page = POPPLER_PAGE (object);
 
   g_object_unref (page->document);
-  page->document = NULL;
+  page->document = nullptr;
 
-  if (page->text != NULL) 
+  if (page->text != nullptr) 
     page->text->decRefCnt();
   /* page->page is owned by the document */
 
@@ -110,9 +109,9 @@ poppler_page_get_size (PopplerPage *page,
     page_height = page->page->getCropHeight ();
   }
 
-  if (width != NULL)
+  if (width != nullptr)
     *width = page_width;
-  if (height != NULL)
+  if (height != nullptr)
     *height = page_height;
 }
 
@@ -184,16 +183,15 @@ poppler_page_get_transition (PopplerPage *page)
 {
   PageTransition *trans;
   PopplerPageTransition *transition;
-  Object obj;
-  
+
   g_return_val_if_fail (POPPLER_IS_PAGE (page), NULL);
 
-  trans = new PageTransition (page->page->getTrans (&obj));
-  obj.free ();
+  Object obj = page->page->getTrans ();
+  trans = new PageTransition (&obj);
 
   if (!trans->isOk ()) {
     delete trans;
-    return NULL;
+    return nullptr;
   }
 
   transition = poppler_page_transition_new ();
@@ -249,6 +247,7 @@ poppler_page_get_transition (PopplerPage *page)
 	  POPPLER_PAGE_TRANSITION_OUTWARD;
 
   transition->duration = trans->getDuration();
+  transition->duration_real = trans->getDuration();
   transition->angle = trans->getAngle();
   transition->scale = trans->getScale();
   transition->rectangular = trans->isRectangular();
@@ -261,18 +260,18 @@ poppler_page_get_transition (PopplerPage *page)
 static TextPage *
 poppler_page_get_text_page (PopplerPage *page)
 {
-  if (page->text == NULL) {
+  if (page->text == nullptr) {
     TextOutputDev *text_dev;
     Gfx           *gfx;
 
-    text_dev = new TextOutputDev (NULL, gTrue, 0, gFalse, gFalse);
+    text_dev = new TextOutputDev (nullptr, true, 0, false, false);
     gfx = page->page->createGfx(text_dev,
 				72.0, 72.0, 0,
-				gFalse, /* useMediaBox */
-				gTrue, /* Crop */
+				false, /* useMediaBox */
+				true, /* Crop */
 				-1, -1, -1, -1,
-				gFalse, /* printing */
-				NULL, NULL);
+				false, /* printing */
+				nullptr, nullptr);
     page->page->display(gfx);
     text_dev->endPage();
 
@@ -304,13 +303,13 @@ annot_is_markup (Annot *annot)
     }
 }
 
-static GBool
+static bool
 poppler_print_annot_cb (Annot *annot, void *user_data)
 {
   PopplerPrintFlags user_print_flags = (PopplerPrintFlags)GPOINTER_TO_INT (user_data);
 
   if (annot->getFlags () & Annot::flagHidden)
-    return gFalse;
+    return false;
 
   if (user_print_flags & POPPLER_PRINT_STAMP_ANNOTS_ONLY) {
     return (annot->getType() == Annot::typeStamp) ?
@@ -331,7 +330,7 @@ poppler_print_annot_cb (Annot *annot, void *user_data)
 static void
 _poppler_page_render (PopplerPage      *page,
 		      cairo_t          *cairo,
-		      GBool             printing,
+		      bool             printing,
                       PopplerPrintFlags print_flags)
 {
   CairoOutputDev *output_dev;
@@ -342,26 +341,28 @@ _poppler_page_render (PopplerPage      *page,
   output_dev->setCairo (cairo);
   output_dev->setPrinting (printing);
 
-  if (!printing)
-    output_dev->setTextPage (page->text);
 
+  if (!printing && page->text == nullptr) {
+    page->text = new TextPage (false);
+    output_dev->setTextPage (page->text);
+  }
   /* NOTE: instead of passing -1 we should/could use cairo_clip_extents()
    * to get a bounding box */
   cairo_save (cairo);
   page->page->displaySlice(output_dev,
 			   72.0, 72.0, 0,
-			   gFalse, /* useMediaBox */
-			   gTrue, /* Crop */
+			   false, /* useMediaBox */
+			   true, /* Crop */
 			   -1, -1,
 			   -1, -1,
 			   printing,
-			   NULL, NULL,
-			   printing ? poppler_print_annot_cb : NULL,
-                           printing ? GINT_TO_POINTER ((gint)print_flags) : NULL);
+			   nullptr, nullptr,
+			   printing ? poppler_print_annot_cb : nullptr,
+                           printing ? GINT_TO_POINTER ((gint)print_flags) : nullptr);
   cairo_restore (cairo);
 
-  output_dev->setCairo (NULL);
-  output_dev->setTextPage (NULL);
+  output_dev->setCairo (nullptr);
+  output_dev->setTextPage (nullptr);
 }
 
 /**
@@ -372,7 +373,9 @@ _poppler_page_render (PopplerPage      *page,
  * Render the page to the given cairo context. This function
  * is for rendering a page that will be displayed. If you want
  * to render a page that will be printed use
- * poppler_page_render_for_printing() instead
+ * poppler_page_render_for_printing() instead.  Please see the documentation
+ * for that function for the differences between rendering to the screen and
+ * rendering to a printer.
  **/
 void
 poppler_page_render (PopplerPage *page,
@@ -380,10 +383,7 @@ poppler_page_render (PopplerPage *page,
 {
   g_return_if_fail (POPPLER_IS_PAGE (page));
 
-  if (!page->text)
-    page->text = new TextPage(gFalse);
-
-  _poppler_page_render (page, cairo, gFalse, (PopplerPrintFlags)0);
+  _poppler_page_render (page, cairo, false, (PopplerPrintFlags)0);
 }
 
 /**
@@ -395,6 +395,9 @@ poppler_page_render (PopplerPage *page,
  * Render the page to the given cairo context for printing
  * with the specified options
  *
+ * See the documentation for poppler_page_render_for_printing() for the
+ * differences between rendering to the screen and rendering to a printer.
+ *
  * Since: 0.16
  **/
 void
@@ -404,7 +407,7 @@ poppler_page_render_for_printing_with_options (PopplerPage      *page,
 {
   g_return_if_fail (POPPLER_IS_PAGE (page));
 
-  _poppler_page_render (page, cairo, gTrue, options);
+  _poppler_page_render (page, cairo, true, options);
 }
 
 /**
@@ -412,7 +415,36 @@ poppler_page_render_for_printing_with_options (PopplerPage      *page,
  * @page: the page to render from
  * @cairo: cairo context to render to
  *
- * Render the page to the given cairo context for printing.
+ * Render the page to the given cairo context for printing with
+ * #POPPLER_PRINT_ALL flags selected.  If you want a different set of flags,
+ * use poppler_page_render_for_printing_with_options().
+ *
+ * The difference between poppler_page_render() and this function is that some
+ * things get rendered differently between screens and printers:
+ *
+ * <itemizedlist>
+ *   <listitem>
+ *     PDF annotations get rendered according to their #PopplerAnnotFlag value.
+ *     For example, #POPPLER_ANNOT_FLAG_PRINT refers to whether an annotation
+ *     is printed or not, whereas #POPPLER_ANNOT_FLAG_NO_VIEW refers to whether
+ *     an annotation is invisible when displaying to the screen.
+ *   </listitem>
+ *   <listitem>
+ *     PDF supports "hairlines" of width 0.0, which often get rendered as
+ *     having a width of 1 device pixel.  When displaying on a screen, Cairo
+ *     may render such lines wide so that they are hard to see, and Poppler
+ *     makes use of PDF's Stroke Adjust graphics parameter to make the lines
+ *     easier to see.  However, when printing, Poppler is able to directly use a
+ *     printer's pixel size instead.
+ *   </listitem>
+ *   <listitem>
+ *     Some advanced features in PDF may require an image to be rasterized
+ *     before sending off to a printer.  This may produce raster images which
+ *     exceed Cairo's limits.  The "printing" functions will detect this condition
+ *     and try to down-scale the intermediate surfaces as appropriate.
+ *   </listitem>
+ * </itemizedlist>
+ * 
  **/
 void
 poppler_page_render_for_printing (PopplerPage *page,
@@ -420,7 +452,7 @@ poppler_page_render_for_printing (PopplerPage *page,
 {
   g_return_if_fail (POPPLER_IS_PAGE (page));
 
-  _poppler_page_render (page, cairo, gTrue, POPPLER_PRINT_ALL);
+  _poppler_page_render (page, cairo, true, POPPLER_PRINT_ALL);
 }
 
 static cairo_surface_t *
@@ -436,7 +468,7 @@ create_surface_from_thumbnail_data (guchar *data,
 
   surface = cairo_image_surface_create (CAIRO_FORMAT_RGB24, width, height);
   if (cairo_surface_status (surface))
-    return NULL;
+    return nullptr;
 
   cairo_pixels = cairo_image_surface_get_data (surface);
   cairo_stride = cairo_image_surface_get_stride (surface);
@@ -489,7 +521,7 @@ poppler_page_get_thumbnail (PopplerPage *page)
   g_return_val_if_fail (POPPLER_IS_PAGE (page), NULL);
 
   if (!page->page->loadThumb (&data, &width, &height, &rowstride))
-    return NULL;
+    return nullptr;
 
   surface = create_surface_from_thumbnail_data (data, width, height, rowstride);
   gfree (data);
@@ -567,14 +599,14 @@ poppler_page_render_selection (PopplerPage           *page,
 		       &pdf_selection, selection_style,
 		       &gfx_glyph_color, &gfx_background_color);
 
-  output_dev->setCairo (NULL);
+  output_dev->setCairo (nullptr);
 }
 
 /**
  * poppler_page_get_thumbnail_size:
  * @page: A #PopplerPage
- * @width: (out) return location for width
- * @height: (out) return location for height
+ * @width: (out): return location for width
+ * @height: (out): return location for height
  *
  * Returns %TRUE if @page has a thumbnail associated with it.  It also
  * fills in @width and @height with the width and height of the
@@ -588,18 +620,16 @@ poppler_page_get_thumbnail_size (PopplerPage *page,
 				 int         *width,
 				 int         *height)
 {
-  Object thumb;
   Dict *dict;
   gboolean retval = FALSE;
 
   g_return_val_if_fail (POPPLER_IS_PAGE (page), FALSE);
-  g_return_val_if_fail (width != NULL, FALSE);
-  g_return_val_if_fail (height != NULL, FALSE);
+  g_return_val_if_fail (width != nullptr, FALSE);
+  g_return_val_if_fail (height != nullptr, FALSE);
 
-  page->page->getThumb (&thumb);
+  Object thumb = page->page->getThumb ();
   if (!thumb.isStream ())
     {
-      thumb.free ();
       return FALSE;
     }
 
@@ -610,8 +640,6 @@ poppler_page_get_thumbnail_size (PopplerPage *page,
   if (dict->lookupInt ("Width", "W", width)  &&
       dict->lookupInt ("Height", "H", height))
     retval = TRUE;
-
-  thumb.free ();
 
   return retval;
 }
@@ -641,9 +669,7 @@ poppler_page_get_selection_region (PopplerPage           *page,
   PDFRectangle poppler_selection;
   TextPage *text;
   SelectionStyle selection_style = selectionStyleGlyph;
-  GooList *list;
-  GList *region = NULL;
-  int i;
+  GList *region = nullptr;
 
   poppler_selection.x1 = selection->x1;
   poppler_selection.y1 = selection->y1;
@@ -664,11 +690,10 @@ poppler_page_get_selection_region (PopplerPage           *page,
     }
 
   text = poppler_page_get_text_page (page);
-  list = text->getSelectionRegion(&poppler_selection,
+  std::vector<PDFRectangle*>* list = text->getSelectionRegion(&poppler_selection,
 				  selection_style, scale);
 
-  for (i = 0; i < list->getLength(); i++) {
-    PDFRectangle *selection_rect = (PDFRectangle *) list->get(i);
+  for (const PDFRectangle *selection_rect : *list) {
     PopplerRectangle *rect;
 
     rect = poppler_rectangle_new ();
@@ -703,8 +728,7 @@ poppler_page_selection_region_free (GList *region)
   if (G_UNLIKELY (!region))
     return;
 
-  g_list_foreach (region, (GFunc)poppler_rectangle_free, NULL);
-  g_list_free (region);
+  g_list_free_full (region, (GDestroyNotify)poppler_rectangle_free);
 }
 
 /**
@@ -731,9 +755,7 @@ poppler_page_get_selected_region (PopplerPage           *page,
   PDFRectangle poppler_selection;
   TextPage *text;
   SelectionStyle selection_style = selectionStyleGlyph;
-  GooList *list;
   cairo_region_t *region;
-  int i;
 
   poppler_selection.x1 = selection->x1;
   poppler_selection.y1 = selection->y1;
@@ -754,13 +776,12 @@ poppler_page_get_selected_region (PopplerPage           *page,
     }
 
   text = poppler_page_get_text_page (page);
-  list = text->getSelectionRegion(&poppler_selection,
+  std::vector<PDFRectangle*>* list = text->getSelectionRegion(&poppler_selection,
 				  selection_style, 1.0);
 
   region = cairo_region_create ();
 
-  for (i = 0; i < list->getLength(); i++) {
-    PDFRectangle *selection_rect = (PDFRectangle *) list->get(i);
+  for (const PDFRectangle *selection_rect : *list) {
     cairo_rectangle_int_t rect;
 
     rect.x = (gint) ((selection_rect->x1 * scale) + 0.5);
@@ -801,7 +822,7 @@ poppler_page_get_selected_text (PopplerPage          *page,
   PDFRectangle pdf_selection;
 
   g_return_val_if_fail (POPPLER_IS_PAGE (page), NULL);
-  g_return_val_if_fail (selection != NULL, NULL);
+  g_return_val_if_fail (selection != nullptr, NULL);
 
   pdf_selection.x1 = selection->x1;
   pdf_selection.y1 = selection->y1;
@@ -823,7 +844,7 @@ poppler_page_get_selected_text (PopplerPage          *page,
 
   text = poppler_page_get_text_page (page);
   sel_text = text->getSelectionText (&pdf_selection, selection_style);
-  result = g_strdup (sel_text->getCString ());
+  result = g_strdup (sel_text->c_str ());
   delete sel_text;
 
   return result;
@@ -852,13 +873,35 @@ poppler_page_get_text (PopplerPage *page)
 }
 
 /**
+ * poppler_page_get_text_for_area:
+ * @page: a #PopplerPage
+ * @area: a #PopplerRectangle
+ *
+ * Retrieves the text of @page contained in @area.
+ *
+ * Return value: a pointer to the text as a string
+ *
+ * Since: 0.26
+ **/
+char *
+poppler_page_get_text_for_area (PopplerPage      *page,
+                                PopplerRectangle *area)
+{
+  g_return_val_if_fail (POPPLER_IS_PAGE (page), NULL);
+  g_return_val_if_fail (area != nullptr, NULL);
+
+  return poppler_page_get_selected_text (page, POPPLER_SELECTION_GLYPH, area);
+}
+
+
+/**
  * poppler_page_find_text_with_options:
  * @page: a #PopplerPage
  * @text: the text to search for (UTF-8 encoded)
  * @options: find options
  *
  * Finds @text in @page with the given #PopplerFindFlags options and
- * returns a #GList of rectangles for each occurance of the text on the page.
+ * returns a #GList of rectangles for each occurrence of the text on the page.
  * The coordinates are in PDF points.
  *
  * Return value: (element-type PopplerRectangle) (transfer full): a #GList of #PopplerRectangle,
@@ -878,24 +921,27 @@ poppler_page_find_text_with_options (PopplerPage     *page,
   double height;
   TextPage *text_dev;
   gboolean backwards;
+  gboolean start_at_last = FALSE;
 
   g_return_val_if_fail (POPPLER_IS_PAGE (page), NULL);
-  g_return_val_if_fail (text != NULL, NULL);
+  g_return_val_if_fail (text != nullptr, NULL);
 
   text_dev = poppler_page_get_text_page (page);
 
   ucs4 = g_utf8_to_ucs4_fast (text, -1, &ucs4_len);
-  poppler_page_get_size (page, NULL, &height);
+  poppler_page_get_size (page, nullptr, &height);
 
   backwards = options & POPPLER_FIND_BACKWARDS;
-  matches = NULL;
+  matches = nullptr;
   xMin = 0;
   yMin = backwards ? height : 0;
 
   while (text_dev->findText (ucs4, ucs4_len,
-                             gFalse, gTrue, // startAtTop, stopAtBottom
-                             gTrue, gFalse, // startAtLast, stopAtLast
+                             false, true, // startAtTop, stopAtBottom
+                             start_at_last,
+                             false, //stopAtLast
                              options & POPPLER_FIND_CASE_SENSITIVE,
+                             options & POPPLER_FIND_IGNORE_DIACRITICS,
                              backwards,
                              options & POPPLER_FIND_WHOLE_WORDS_ONLY,
                              &xMin, &yMin, &xMax, &yMax))
@@ -906,6 +952,7 @@ poppler_page_find_text_with_options (PopplerPage     *page,
       match->x2 = xMax;
       match->y2 = height - yMin;
       matches = g_list_prepend (matches, match);
+      start_at_last = TRUE;
     }
 
   g_free (ucs4);
@@ -919,7 +966,7 @@ poppler_page_find_text_with_options (PopplerPage     *page,
  * @text: the text to search for (UTF-8 encoded)
  *
  * Finds @text in @page with the default options (%POPPLER_FIND_DEFAULT) and
- * returns a #GList of rectangles for each occurance of the text on the page.
+ * returns a #GList of rectangles for each occurrence of the text on the page.
  * The coordinates are in PDF points.
  *
  * Return value: (element-type PopplerRectangle) (transfer full): a #GList of #PopplerRectangle,
@@ -933,7 +980,7 @@ poppler_page_find_text (PopplerPage *page,
 
 static CairoImageOutputDev *
 poppler_page_get_image_output_dev (PopplerPage *page,
-				   GBool (*imgDrawDeviceCbk)(int img_id, void *data),
+				   bool (*imgDrawDeviceCbk)(int img_id, void *data),
 				   void *imgDrawCbkData)
 {
   CairoImageOutputDev *image_dev;
@@ -948,11 +995,11 @@ poppler_page_get_image_output_dev (PopplerPage *page,
 
   gfx = page->page->createGfx(image_dev,
 			      72.0, 72.0, 0,
-			      gFalse, /* useMediaBox */
-			      gTrue, /* Crop */
+			      false, /* useMediaBox */
+			      true, /* Crop */
 			      -1, -1, -1, -1,
-			      gFalse, /* printing */
-			      NULL, NULL);
+			      false, /* printing */
+			      nullptr, nullptr);
   page->page->display(gfx);
   delete gfx;
 
@@ -972,13 +1019,13 @@ poppler_page_get_image_output_dev (PopplerPage *page,
 GList *
 poppler_page_get_image_mapping (PopplerPage *page)
 {
-  GList *map_list = NULL;
+  GList *map_list = nullptr;
   CairoImageOutputDev *out;
   gint i;
   
   g_return_val_if_fail (POPPLER_IS_PAGE (page), NULL);
 
-  out = poppler_page_get_image_output_dev (page, NULL, NULL);
+  out = poppler_page_get_image_output_dev (page, nullptr, nullptr);
 
   for (i = 0; i < out->getNumImages (); i++) {
     PopplerImageMapping *mapping;
@@ -1006,7 +1053,7 @@ poppler_page_get_image_mapping (PopplerPage *page)
   return map_list;	
 }
 
-static GBool
+static bool
 image_draw_decide_cb (int image_id, void *data)
 {
   return (image_id == GPOINTER_TO_INT (data));
@@ -1037,14 +1084,14 @@ poppler_page_get_image (PopplerPage *page,
   if (image_id >= out->getNumImages ()) {
     delete out;
     
-    return NULL;
+    return nullptr;
   }
 
   image = out->getImage (image_id)->getImage ();
   if (!image) {
     delete out;
 
-    return NULL;
+    return nullptr;
   }
 
   cairo_surface_reference (image);
@@ -1064,11 +1111,10 @@ poppler_page_get_image (PopplerPage *page,
 void
 poppler_page_free_image_mapping (GList *list)
 {
-  if (G_UNLIKELY (list == NULL))
+  if (G_UNLIKELY (list == nullptr))
     return;
 
-  g_list_foreach (list, (GFunc)poppler_image_mapping_free, NULL);
-  g_list_free (list);
+  g_list_free_full (list, (GDestroyNotify)poppler_image_mapping_free);
 }
 
 /**
@@ -1084,20 +1130,24 @@ poppler_page_render_to_ps (PopplerPage   *page,
 			   PopplerPSFile *ps_file)
 {
   g_return_if_fail (POPPLER_IS_PAGE (page));
-  g_return_if_fail (ps_file != NULL);
+  g_return_if_fail (ps_file != nullptr);
 
-  if (!ps_file->out)
+  if (!ps_file->out)  {
+    std::vector<int> pages;
+    for (int i = ps_file->first_page; i <= ps_file->last_page; ++i) {
+      pages.push_back(i);
+    }
     ps_file->out = new PSOutputDev (ps_file->filename,
                                     ps_file->document->doc,
-                                    NULL,
-                                    ps_file->first_page, ps_file->last_page,
+                                    nullptr, pages,
                                     psModePS, (int)ps_file->paper_width,
                                     (int)ps_file->paper_height, ps_file->duplex,
-                                    0, 0, 0, 0, gFalse, gFalse);
+                                    false, 0, 0, 0, false, false);
+  }
 
 
   ps_file->document->doc->displayPage (ps_file->out, page->index + 1, 72.0, 72.0,
-				       0, gFalse, gTrue, gFalse);
+				       0, false, true, false);
 }
 
 static void
@@ -1136,7 +1186,7 @@ poppler_page_class_init (PopplerPageClass *klass)
 				   g_param_spec_string ("label",
 							"Page Label",
 							"The label of the page",
-							NULL,
+							nullptr,
 							G_PARAM_READABLE));
 }
 
@@ -1158,7 +1208,7 @@ poppler_page_init (PopplerPage *page)
 GList *
 poppler_page_get_link_mapping (PopplerPage *page)
 {
-  GList *map_list = NULL;
+  GList *map_list = nullptr;
   gint i;
   Links *links;
   double width, height;
@@ -1167,8 +1217,8 @@ poppler_page_get_link_mapping (PopplerPage *page)
   
   links = new Links (page->page->getAnnots ());
 
-  if (links == NULL)
-    return NULL;
+  if (links == nullptr)
+    return nullptr;
   
   poppler_page_get_size (page, &width, &height);
   
@@ -1184,7 +1234,7 @@ poppler_page_get_link_mapping (PopplerPage *page)
       
       /* Create the mapping */
       mapping = poppler_link_mapping_new ();
-      mapping->action = _poppler_action_new (page->document, link_action, NULL);
+      mapping->action = _poppler_action_new (page->document, link_action, nullptr);
 
       link->getRect (&rect.x1, &rect.y1, &rect.x2, &rect.y2);
 
@@ -1244,11 +1294,10 @@ poppler_page_get_link_mapping (PopplerPage *page)
 void
 poppler_page_free_link_mapping (GList *list)
 {
-  if (G_UNLIKELY (list == NULL))
+  if (G_UNLIKELY (list == nullptr))
     return;
 
-  g_list_foreach (list, (GFunc)poppler_link_mapping_free, NULL);
-  g_list_free (list);
+  g_list_free_full (list, (GDestroyNotify)poppler_link_mapping_free);
 }
 
 /**
@@ -1264,7 +1313,7 @@ poppler_page_free_link_mapping (GList *list)
 GList *
 poppler_page_get_form_field_mapping (PopplerPage *page)
 {
-  GList *map_list = NULL;
+  GList *map_list = nullptr;
   FormPageWidgets *forms;
   gint i;
   
@@ -1272,8 +1321,8 @@ poppler_page_get_form_field_mapping (PopplerPage *page)
 
   forms = page->page->getFormWidgets ();
 
-  if (forms == NULL)
-    return NULL;
+  if (forms == nullptr)
+    return nullptr;
   
   for (i = 0; i < forms->getNumWidgets (); i++) {
     PopplerFormFieldMapping *mapping;
@@ -1311,11 +1360,10 @@ poppler_page_get_form_field_mapping (PopplerPage *page)
 void
 poppler_page_free_form_field_mapping (GList *list)
 {
-  if (G_UNLIKELY (list == NULL))
+  if (G_UNLIKELY (list == nullptr))
     return;
 
-  g_list_foreach (list, (GFunc) poppler_form_field_mapping_free, NULL);
-  g_list_free (list);
+  g_list_free_full (list, (GDestroyNotify)poppler_form_field_mapping_free);
 }
 
 /**
@@ -1331,7 +1379,7 @@ poppler_page_free_form_field_mapping (GList *list)
 GList *
 poppler_page_get_annot_mapping (PopplerPage *page)
 {
-  GList *map_list = NULL;
+  GList *map_list = nullptr;
   double width, height;
   gint i;
   Annots *annots;
@@ -1340,7 +1388,7 @@ poppler_page_get_annot_mapping (PopplerPage *page)
 
   annots = page->page->getAnnots ();
   if (!annots)
-    return NULL;
+    return nullptr;
 
   poppler_page_get_size (page, &width, &height);
 
@@ -1371,8 +1419,23 @@ poppler_page_get_annot_mapping (PopplerPage *page)
         mapping->annot = _poppler_annot_movie_new (annot);
 	break;
       case Annot::typeScreen:
-        mapping->annot = _poppler_annot_screen_new (annot);
+        mapping->annot = _poppler_annot_screen_new (page->document, annot);
 	break;
+      case Annot::typeLine:
+        mapping->annot = _poppler_annot_line_new (annot);
+	break;
+      case Annot::typeSquare:
+        mapping->annot = _poppler_annot_square_new (annot);
+	break;
+      case Annot::typeCircle:
+        mapping->annot = _poppler_annot_circle_new (annot);
+	break;
+      case Annot::typeHighlight:
+      case Annot::typeUnderline:
+      case Annot::typeSquiggly:
+      case Annot::typeStrikeOut:
+        mapping->annot = _poppler_annot_text_markup_new (annot);
+        break;
       default:
         mapping->annot = _poppler_annot_new (annot);
 	break;
@@ -1436,8 +1499,7 @@ poppler_page_free_annot_mapping (GList *list)
   if (G_UNLIKELY (!list))
     return;
 
-  g_list_foreach (list, (GFunc)poppler_annot_mapping_free, NULL);
-  g_list_free (list);
+  g_list_free_full (list, (GDestroyNotify)poppler_annot_mapping_free);
 }
 
 /**
@@ -1508,7 +1570,7 @@ poppler_rectangle_new (void)
 PopplerRectangle *
 poppler_rectangle_copy (PopplerRectangle *rectangle)
 {
-  g_return_val_if_fail (rectangle != NULL, NULL);
+  g_return_val_if_fail (rectangle != nullptr, NULL);
 
   return g_slice_dup (PopplerRectangle, rectangle);
 }
@@ -1523,6 +1585,113 @@ void
 poppler_rectangle_free (PopplerRectangle *rectangle)
 {
   g_slice_free (PopplerRectangle, rectangle);
+}
+
+/* PopplerPoint type */
+
+POPPLER_DEFINE_BOXED_TYPE (PopplerPoint, poppler_point,
+                           poppler_point_copy,
+                           poppler_point_free)
+
+/**
+ * poppler_point_new:
+ *
+ * Creates a new #PopplerPoint. It must be freed with poppler_point_free() after use.
+ *
+ * Returns: a new #PopplerPoint
+ *
+ * Since: 0.26
+ **/
+PopplerPoint *
+poppler_point_new (void)
+{
+  return g_slice_new0 (PopplerPoint);
+}
+
+/**
+ * poppler_point_copy:
+ * @point: a #PopplerPoint to copy
+ *
+ * Creates a copy of @point. The copy must be freed with poppler_point_free()
+ * after use.
+ *
+ * Returns: a new allocated copy of @point
+ *
+ * Since: 0.26
+ **/
+PopplerPoint *
+poppler_point_copy (PopplerPoint *point)
+{
+  g_return_val_if_fail (point != nullptr, NULL);
+
+  return g_slice_dup (PopplerPoint, point);
+}
+
+/**
+ * poppler_point_free:
+ * @point: a #PopplerPoint
+ *
+ * Frees the memory used by @point
+ *
+ * Since: 0.26
+ **/
+void
+poppler_point_free (PopplerPoint *point)
+{
+  g_slice_free (PopplerPoint, point);
+}
+
+/* PopplerQuadrilateral type */
+
+POPPLER_DEFINE_BOXED_TYPE (PopplerQuadrilateral, poppler_quadrilateral,
+                           poppler_quadrilateral_copy,
+                           poppler_quadrilateral_free)
+
+/**
+ * poppler_quadrilateral_new:
+ *
+ * Creates a new #PopplerQuadrilateral. It must be freed with poppler_quadrilateral_free() after use.
+ *
+ * Returns: a new #PopplerQuadrilateral.
+ *
+ * Since: 0.26
+ **/
+PopplerQuadrilateral *
+poppler_quadrilateral_new (void)
+{
+  return g_slice_new0 (PopplerQuadrilateral);
+}
+
+/**
+ * poppler_quadrilateral_copy:
+ * @quad: a #PopplerQuadrilateral to copy
+ *
+ * Creates a copy of @quad. The copy must be freed with poppler_quadrilateral_free() after use.
+ *
+ * Returns: a new allocated copy of @quad
+ *
+ * Since: 0.26
+ **/
+PopplerQuadrilateral *
+poppler_quadrilateral_copy (PopplerQuadrilateral *quad)
+{
+  g_return_val_if_fail (quad != nullptr, NULL);
+
+  return g_slice_dup (PopplerQuadrilateral, quad);
+}
+
+/**
+ * poppler_quadrilateral_free:
+ * @quad: a #PopplerQuadrilateral
+ *
+ * Frees the memory used by @quad
+ *
+ * Since: 0.26
+ **/
+void
+poppler_quadrilateral_free (PopplerQuadrilateral *quad)
+{
+  g_slice_free (PopplerQuadrilateral, quad);
 }
 
 /* PopplerTextAttributes type */
@@ -1547,9 +1716,9 @@ poppler_text_attributes_new (void)
 }
 
 static gchar *
-get_font_name_from_word (TextWord *word, gint word_i)
+get_font_name_from_word (const TextWord *word, gint word_i)
 {
-  GooString *font_name = word->getFontName(word_i);
+  const GooString *font_name = word->getFontName(word_i);
   const gchar *name;
   gboolean subset;
   gint i;
@@ -1564,7 +1733,7 @@ get_font_name_from_word (TextWord *word, gint word_i)
     }
   }
   subset = i > 0 && i < font_name->getLength () && font_name->getChar (i) == '+';
-  name = font_name->getCString ();
+  name = font_name->c_str ();
   if (subset)
     name += i + 1;
 
@@ -1575,7 +1744,7 @@ get_font_name_from_word (TextWord *word, gint word_i)
  * Allocates a new PopplerTextAttributes with word attributes
  */
 static PopplerTextAttributes *
-poppler_text_attributes_new_from_word (TextWord *word, gint i)
+poppler_text_attributes_new_from_word (const TextWord *word, gint i)
 {
   PopplerTextAttributes *attrs = poppler_text_attributes_new ();
   gdouble r, g, b;
@@ -1625,6 +1794,12 @@ poppler_text_attributes_free (PopplerTextAttributes *text_attrs)
   g_free (text_attrs->font_name);
   g_slice_free (PopplerTextAttributes, text_attrs);
 }
+
+/**
+ * SECTION:poppler-color
+ * @short_description: Colors
+ * @title: PopplerColor
+ */
 
 /* PopplerColor type */
 POPPLER_DEFINE_BOXED_TYPE (PopplerColor, poppler_color, poppler_color_copy, poppler_color_free)
@@ -1947,7 +2122,7 @@ poppler_annot_mapping_free (PopplerAnnotMapping *mapping)
 void
 poppler_page_get_crop_box (PopplerPage *page, PopplerRectangle *rect)
 {
-  PDFRectangle* cropBox = page->page->getCropBox ();
+  const PDFRectangle* cropBox = page->page->getCropBox ();
   
   rect->x1 = cropBox->x1;
   rect->x2 = cropBox->x2;
@@ -1959,13 +2134,15 @@ poppler_page_get_crop_box (PopplerPage *page, PopplerRectangle *rect)
  * poppler_page_get_text_layout:
  * @page: A #PopplerPage
  * @rectangles: (out) (array length=n_rectangles) (transfer container): return location for an array of #PopplerRectangle
- * @n_rectangles: (out) length of returned array
+ * @n_rectangles: (out): length of returned array
  *
  * Obtains the layout of the text as a list of #PopplerRectangle
- * This array must be freed with g_free () when done.
+ * This array must be freed with g_free() when done.
  *
  * The position in the array represents an offset in the text returned by
  * poppler_page_get_text()
+ *
+ * See also poppler_page_get_text_layout_for_area().
  *
  * Return value: %TRUE if the page contains text, %FALSE otherwise
  *
@@ -1976,78 +2153,131 @@ poppler_page_get_text_layout (PopplerPage       *page,
                               PopplerRectangle **rectangles,
                               guint             *n_rectangles)
 {
-  TextPage *text;
-  TextWordList *wordlist;
-  TextWord *word, *nextword;
-  PopplerRectangle *rect;
-  int i, j, offset = 0;
-  gdouble x1, y1, x2, y2;
-  gdouble x3, y3, x4, y4;
+  PopplerRectangle selection = {0, 0, 0, 0};
 
   g_return_val_if_fail (POPPLER_IS_PAGE (page), FALSE);
 
+  poppler_page_get_size (page, &selection.x2, &selection.y2);
+
+  return poppler_page_get_text_layout_for_area (page, &selection, rectangles, n_rectangles);
+}
+
+/**
+ * poppler_page_get_text_layout_for_area:
+ * @page: A #PopplerPage
+ * @area: a #PopplerRectangle
+ * @rectangles: (out) (array length=n_rectangles) (transfer container): return location for an array of #PopplerRectangle
+ * @n_rectangles: (out): length of returned array
+ *
+ * Obtains the layout of the text contained in @area as a list of #PopplerRectangle
+ * This array must be freed with g_free() when done.
+ *
+ * The position in the array represents an offset in the text returned by
+ * poppler_page_get_text_for_area()
+ *
+ * Return value: %TRUE if the page contains text, %FALSE otherwise
+ *
+ * Since: 0.26
+ **/
+gboolean
+poppler_page_get_text_layout_for_area (PopplerPage       *page,
+                                       PopplerRectangle  *area,
+                                       PopplerRectangle **rectangles,
+                                       guint             *n_rectangles)
+{
+  TextPage *text;
+  PopplerRectangle *rect;
+  PDFRectangle selection;
+  int i, k;
+  guint offset = 0;
+  guint n_rects = 0;
+  gdouble x1, y1, x2, y2;
+  gdouble x3, y3, x4, y4;
+  int n_lines;
+
+  g_return_val_if_fail (POPPLER_IS_PAGE (page), FALSE);
+  g_return_val_if_fail (area != nullptr, FALSE);
+
   *n_rectangles = 0;
 
+  selection.x1 = area->x1;
+  selection.y1 = area->y1;
+  selection.x2 = area->x2;
+  selection.y2 = area->y2;
+
   text = poppler_page_get_text_page (page);
-  wordlist = text->makeWordList (gFalse);
+  std::vector<TextWordSelection*>** word_list = text->getSelectionWords (&selection, selectionStyleGlyph, &n_lines);
+  if (!word_list)
+          return FALSE;
 
-  if (wordlist->getLength () <= 0)
+  n_rects += n_lines - 1;
+  for (i = 0; i < n_lines; i++)
     {
-      delete wordlist;
-      return FALSE;
-    }
-
-  // Getting the array size
-  for (i = 0; i < wordlist->getLength (); i++)
-    {
-      word = wordlist->get (i);
-      *n_rectangles += word->getLength () + 1;
-    }
-
-  *rectangles = g_new (PopplerRectangle, *n_rectangles);
-
-  // Calculating each char position
-  for (i = 0; i < wordlist->getLength (); i++)
-    {
-      word = wordlist->get (i);
-      for (j = 0; j < word->getLength (); j++)
+      std::vector<TextWordSelection*> *line_words = word_list[i];
+      n_rects += line_words->size() - 1;
+      for (const TextWordSelection *word_sel : *line_words)
         {
+          n_rects += word_sel->getEnd() - word_sel->getBegin();
+        }
+    }
+
+  *rectangles = g_new (PopplerRectangle, n_rects);
+  *n_rectangles = n_rects;
+
+  for (i = 0; i < n_lines; i++)
+    {
+      std::vector<TextWordSelection*> *line_words = word_list[i];
+      for (std::size_t j = 0; j < line_words->size(); j++)
+        {
+          TextWordSelection *word_sel = (*line_words)[j];
+          const TextWord *word = word_sel->getWord();
+          int end = word_sel->getEnd();
+
+          for (k = word_sel->getBegin(); k < end; k++)
+            {
+              rect = *rectangles + offset;
+              word->getCharBBox (k,
+                                 &(rect->x1),
+                                 &(rect->y1),
+                                 &(rect->x2),
+                                 &(rect->y2));
+              offset++;
+            }
+
           rect = *rectangles + offset;
-	  word->getCharBBox (j,
-			     &(rect->x1),
-			     &(rect->y1),
-			     &(rect->x2),
-			     &(rect->y2));
-	  offset++;
-	}
+          word->getBBox (&x1, &y1, &x2, &y2);
 
-      // adding spaces and break lines
-      rect = *rectangles + offset;
-      word->getBBox (&x1, &y1, &x2, &y2);
+          if (j < line_words->size() - 1)
+            {
+              TextWordSelection *next_word_sel = (*line_words)[j + 1];
 
-      nextword = word->getNext ();
-      if (nextword)
+              next_word_sel->getWord()->getBBox(&x3, &y3, &x4, &y4);
+	      // space is from one word to other and with the same height as
+	      // first word.
+	      rect->x1 = x2;
+	      rect->y1 = y1;
+	      rect->x2 = x3;
+	      rect->y2 = y2;
+	      offset++;
+            }
+
+          delete word_sel;
+        }
+
+      if (i < n_lines - 1 && offset > 0)
         {
-	  nextword->getBBox (&x3, &y3, &x4, &y4);
-	  // space is from one word to other and with the same height as
-	  // first word.
-	  rect->x1 = x2;
-	  rect->y1 = y1;
-	  rect->x2 = x3;
-	  rect->y2 = y2;
-	}
-      else
-        {
-	  // end of line
-	  rect->x1 = x2;
-	  rect->y1 = y2;
-	  rect->x2 = x2;
-	  rect->y2 = y2;
-	}
-      offset++;
+          // end of line
+          rect->x1 = x2;
+          rect->y1 = y2;
+          rect->x2 = x2;
+          rect->y2 = y2;
+          offset++;
+        }
+
+      delete line_words;
     }
 
-  delete wordlist;
+  gfree (word_list);
 
   return TRUE;
 }
@@ -2065,15 +2295,14 @@ poppler_page_get_text_layout (PopplerPage       *page,
 void
 poppler_page_free_text_attributes (GList *list)
 {
-  if (G_UNLIKELY (list == NULL))
+  if (G_UNLIKELY (list == nullptr))
     return;
 
-  g_list_foreach (list, (GFunc)poppler_text_attributes_free, NULL);
-  g_list_free (list);
+  g_list_free_full (list, (GDestroyNotify)poppler_text_attributes_free);
 }
 
 static gboolean
-word_text_attributes_equal (TextWord *a, gint ai, TextWord *b, gint bi)
+word_text_attributes_equal (const TextWord *a, gint ai, const TextWord *b, gint bi)
 {
   double ar, ag, ab, br, bg, bb;
 
@@ -2095,12 +2324,14 @@ word_text_attributes_equal (TextWord *a, gint ai, TextWord *b, gint bi)
  * poppler_page_get_text_attributes:
  * @page: A #PopplerPage
  *
- * Obtains the attributes of the text as a GList of #PopplerTextAttributes.
+ * Obtains the attributes of the text as a #GList of #PopplerTextAttributes.
  * This list must be freed with poppler_page_free_text_attributes() when done.
  *
  * Each list element is a #PopplerTextAttributes struct where start_index and
  * end_index indicates the range of text (as returned by poppler_page_get_text())
  * to which text attributes apply.
+ *
+ * See also poppler_page_get_text_attributes_for_area()
  *
  * Return value: (element-type PopplerTextAttributes) (transfer full): A #GList of #PopplerTextAttributes
  *
@@ -2109,56 +2340,101 @@ word_text_attributes_equal (TextWord *a, gint ai, TextWord *b, gint bi)
 GList *
 poppler_page_get_text_attributes (PopplerPage *page)
 {
-  TextPage *text;
-  TextWordList *wordlist;
-  PopplerTextAttributes *attrs = NULL;
-  PopplerTextAttributes *previous = NULL;
-  gint i, offset = 0;
-  GList *attributes = NULL;
+  PopplerRectangle selection = {0, 0, 0, 0};
 
   g_return_val_if_fail (POPPLER_IS_PAGE (page), NULL);
 
-  text = poppler_page_get_text_page (page);
-  wordlist = text->makeWordList (gFalse);
+  poppler_page_get_size (page, &selection.x2, &selection.y2);
 
-  if (wordlist->getLength () <= 0)
-    {
-      delete wordlist;
-      return NULL;
-    }
+  return poppler_page_get_text_attributes_for_area (page, &selection);
+}
 
-  TextWord *word, *prev_word = NULL;
+/**
+ * poppler_page_get_text_attributes_for_area:
+ * @page: A #PopplerPage
+ * @area: a #PopplerRectangle
+ *
+ * Obtains the attributes of the text in @area as a #GList of #PopplerTextAttributes.
+ * This list must be freed with poppler_page_free_text_attributes() when done.
+ *
+ * Each list element is a #PopplerTextAttributes struct where start_index and
+ * end_index indicates the range of text (as returned by poppler_page_get_text_for_area())
+ * to which text attributes apply.
+ *
+ * Return value: (element-type PopplerTextAttributes) (transfer full): A #GList of #PopplerTextAttributes
+ *
+ * Since: 0.26
+ **/
+GList *
+poppler_page_get_text_attributes_for_area (PopplerPage      *page,
+                                           PopplerRectangle *area)
+{
+  TextPage *text;
+  PDFRectangle selection;
+  int n_lines;
+  PopplerTextAttributes *attrs = nullptr;
+  const TextWord *word, *prev_word = nullptr;
   gint word_i, prev_word_i;
+  gint i;
+  gint offset = 0;
+  GList *attributes = nullptr;
 
-  // Calculating each word attributes
-  for (i = 0; i < wordlist->getLength (); i++)
+  g_return_val_if_fail (POPPLER_IS_PAGE (page), NULL);
+  g_return_val_if_fail (area != nullptr, nullptr);
+
+  selection.x1 = area->x1;
+  selection.y1 = area->y1;
+  selection.x2 = area->x2;
+  selection.y2 = area->y2;
+
+  text = poppler_page_get_text_page (page);
+  std::vector<TextWordSelection*>** word_list = text->getSelectionWords (&selection, selectionStyleGlyph, &n_lines);
+  if (!word_list)
+          return nullptr;
+
+  for (i = 0; i < n_lines; i++)
     {
-      word = wordlist->get (i);
+      std::vector<TextWordSelection*> *line_words = word_list[i];
+      for (std::size_t j = 0; j < line_words->size(); j++)
+        {
+          TextWordSelection *word_sel = (*line_words)[j];
+          int end = word_sel->getEnd();
 
-      for (word_i = 0; word_i < word->getLength (); word_i++)
-	{
-	  if (prev_word && word_text_attributes_equal (word, word_i, prev_word, prev_word_i)) {
-	    attrs = previous;
-	  } else {
-	    attrs = poppler_text_attributes_new_from_word (word, word_i);
-	    attrs->start_index = offset;
-	    if (previous)
-	      previous->end_index--;
-	    previous = attrs;
-	    attributes = g_list_prepend (attributes, attrs);
-	  }
-	  offset++;
-	  attrs->end_index = offset;
-	  prev_word = word;
-	  prev_word_i = word_i;
-	}
-      offset++;
-      attrs->end_index = offset;
+          word = word_sel->getWord();
+
+          for (word_i = word_sel->getBegin(); word_i < end; word_i++)
+            {
+              if (!prev_word || !word_text_attributes_equal (word, word_i, prev_word, prev_word_i))
+                {
+                  attrs = poppler_text_attributes_new_from_word (word, word_i);
+                  attrs->start_index = offset;
+                  attributes = g_list_prepend (attributes, attrs);
+                }
+              attrs->end_index = offset;
+              offset++;
+              prev_word = word;
+              prev_word_i = word_i;
+            }
+
+          if (j < line_words->size() - 1)
+            {
+              attrs->end_index = offset;
+              offset++;
+            }
+
+          delete word_sel;
+        }
+
+      if (i < n_lines - 1)
+        {
+          attrs->end_index = offset;
+          offset++;
+        }
+
+      delete line_words;
     }
-  if (attrs)
-    attrs->end_index--;
 
-  delete wordlist;
+  gfree (word_list);
 
   return g_list_reverse(attributes);
 }

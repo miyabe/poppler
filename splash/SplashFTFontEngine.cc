@@ -12,9 +12,11 @@
 // under GPL version 2 or later
 //
 // Copyright (C) 2006 Takashi Iwai <tiwai@suse.de>
-// Copyright (C) 2009, 2011 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2009, 2011, 2012 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2009 Petr Gajdos <pgajdos@novell.com>
 // Copyright (C) 2011 Andreas Hartmetz <ahartmetz@gmail.com>
+// Copyright (C) 2017 Adrian Johnson <ajohnson@redneon.com>
+// Copyright (C) 2019 Christian Persch <chpe@src.gnome.org>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -23,13 +25,7 @@
 
 #include <config.h>
 
-#if HAVE_FREETYPE_FREETYPE_H || HAVE_FREETYPE_H
-
-#ifdef USE_GCC_PRAGMAS
-#pragma implementation
-#endif
-
-#include <stdio.h>
+#include <cstdio>
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
 #endif
@@ -41,26 +37,12 @@
 #include "SplashFTFontFile.h"
 #include "SplashFTFontEngine.h"
 
-#ifdef VMS
-#if (__VMS_VER < 70000000)
-extern "C" int unlink(char *filename);
-#endif
-#endif
-
-//------------------------------------------------------------------------
-
-#if 0
-static void fileWrite(void *stream, const char *data, int len) {
-  fwrite(data, 1, len, (FILE *)stream);
-}
-#endif
-
 //------------------------------------------------------------------------
 // SplashFTFontEngine
 //------------------------------------------------------------------------
 
-SplashFTFontEngine::SplashFTFontEngine(GBool aaA, GBool enableFreeTypeHintingA,
-				       GBool enableSlightHintingA, FT_Library libA) {
+SplashFTFontEngine::SplashFTFontEngine(bool aaA, bool enableFreeTypeHintingA,
+				       bool enableSlightHintingA, FT_Library libA) {
   FT_Int major, minor, patch;
 
   aa = aaA;
@@ -74,12 +56,12 @@ SplashFTFontEngine::SplashFTFontEngine(GBool aaA, GBool enableFreeTypeHintingA,
             (major == 2 && (minor > 1 || (minor == 1 && patch > 7)));
 }
 
-SplashFTFontEngine *SplashFTFontEngine::init(GBool aaA, GBool enableFreeTypeHintingA,
-					     GBool enableSlightHintingA) {
+SplashFTFontEngine *SplashFTFontEngine::init(bool aaA, bool enableFreeTypeHintingA,
+					     bool enableSlightHintingA) {
   FT_Library libA;
 
   if (FT_Init_FreeType(&libA)) {
-    return NULL;
+    return nullptr;
   }
   return new SplashFTFontEngine(aaA, enableFreeTypeHintingA, enableSlightHintingA, libA);
 }
@@ -115,11 +97,11 @@ SplashFontFile *SplashFTFontEngine::loadCIDFont(SplashFontFileID *idA,
 
   // check for a CFF font
   if (useCIDs) {
-    cidToGIDMap = NULL;
+    cidToGIDMap = nullptr;
     nCIDs = 0;
   } else {
     if (src->isFile) {
-      ff = FoFiType1C::load(src->fileName->getCString());
+      ff = FoFiType1C::load(src->fileName->c_str());
     } else {
       ff = FoFiType1C::make(src->buf, src->bufLen);
     }
@@ -127,7 +109,7 @@ SplashFontFile *SplashFTFontEngine::loadCIDFont(SplashFontFileID *idA,
       cidToGIDMap = ff->getCIDToGIDMap(&nCIDs);
       delete ff;
     } else {
-      cidToGIDMap = NULL;
+      cidToGIDMap = nullptr;
       nCIDs = 0;
     }
   }
@@ -147,12 +129,12 @@ SplashFontFile *SplashFTFontEngine::loadOpenTypeCFFFont(SplashFontFileID *idA,
   int nCIDs;
   SplashFontFile *ret;
 
-  cidToGIDMap = NULL;
+  cidToGIDMap = nullptr;
   nCIDs = 0;
   if (!codeToGID) {
     if (!useCIDs) {
       if (src->isFile) {
-        ff = FoFiTrueType::load(src->fileName->getCString());
+        ff = FoFiTrueType::load(src->fileName->c_str());
       } else {
         ff = FoFiTrueType::make(src->buf, src->bufLen);
       }
@@ -178,43 +160,9 @@ SplashFontFile *SplashFTFontEngine::loadTrueTypeFont(SplashFontFileID *idA,
 						     int *codeToGID,
 						     int codeToGIDLen,
 						     int faceIndex) {
-#if 0
-  FoFiTrueType *ff;
-  GooString *tmpFileName;
-  FILE *tmpFile;
-  SplashFontFile *ret;
-
-  if (!(ff = FoFiTrueType::load(fileName))) {
-    return NULL;
-  }
-  tmpFileName = NULL;
-  if (!openTempFile(&tmpFileName, &tmpFile, "wb")) {
-    delete ff;
-    return NULL;
-  }
-  ff->writeTTF(&fileWrite, tmpFile);
-  delete ff;
-  fclose(tmpFile);
-  ret = SplashFTFontFile::loadTrueTypeFont(this, idA,
-					   tmpFileName->getCString(),
-					   gTrue, codeToGID, codeToGIDLen,
-					   faceIndex);
-  if (ret) {
-    if (deleteFile) {
-      unlink(fileName);
-    }
-  } else {
-    unlink(tmpFileName->getCString());
-  }
-  delete tmpFileName;
-  return ret;
-#else
   SplashFontFile *ret;
   ret = SplashFTFontFile::loadTrueTypeFont(this, idA, src,
 					   codeToGID, codeToGIDLen,
 					   faceIndex);
   return ret;
-#endif
 }
-
-#endif // HAVE_FREETYPE_FREETYPE_H || HAVE_FREETYPE_H

@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+from __future__ import absolute_import, division, print_function
 
 from backends import get_backend, get_all_backends
 from Config import Config
@@ -41,6 +42,9 @@ class HTMLPrettyDiff:
 class HTMLPrettyDiffImage(HTMLPrettyDiff):
 
     def write(self, test, outdir, result, actual, expected, diff):
+        def get_relative_path(path):
+            return '../' * len(path.split('/')) + path
+
         html = """
 <html>
 <head>
@@ -89,21 +93,22 @@ Difference between images: <a href="%s">diff</a><br>
 </script>
 </body>
 </html>
-""" % (test, diff, actual, expected)
+""" % (test, get_relative_path(diff), get_relative_path(actual), expected)
 
         diffdir = self._create_diff_for_test(outdir, test)
-        pretty_diff = os.path.abspath(os.path.join(diffdir, result + '-pretty-diff.html'))
+        pretty_diff_name = result + '-pretty-diff.html'
+        pretty_diff = os.path.abspath(os.path.join(diffdir, pretty_diff_name))
         f = open(pretty_diff, 'w')
         f.write(html)
         f.close()
 
-        return pretty_diff
+        return os.path.join(test, pretty_diff_name)
 
 class HTMLPrettyDiffText(HTMLPrettyDiff):
     def write(self, test, outdir, result, actual, expected, diff):
         import difflib
 
-        actual_file = open(actual, 'r')
+        actual_file = open(os.path.join(outdir, actual), 'r')
         expected_file = open(expected, 'r')
         html = difflib.HtmlDiff().make_file(actual_file.readlines(),
                                             expected_file.readlines(),
@@ -112,18 +117,22 @@ class HTMLPrettyDiffText(HTMLPrettyDiff):
         expected_file.close()
 
         diffdir = self._create_diff_for_test(outdir, test)
-        pretty_diff = os.path.abspath(os.path.join(diffdir, result + '-pretty-diff.html'))
+        pretty_diff_name = result + '-pretty-diff.html'
+        pretty_diff = os.path.abspath(os.path.join(diffdir, pretty_diff_name))
         f = open(pretty_diff, 'w')
         f.write(html)
         f.close()
 
-        return pretty_diff
+        return os.path.join(test, pretty_diff_name)
 
 def create_pretty_diff(backend):
     if backend.get_diff_ext() == '.diff.png':
         return HTMLPrettyDiffImage()
-    if backend.get_diff_ext() == '.diff':
-        return HTMLPrettyDiffText()
+    # Disable pretty diff for Text files for now, since HtmlDiff().make_file() is
+    # entering in an infinite loop with some files. We need to either fix that somehow or
+    # find a different way to generate pretty diffs of text files.
+    #if backend.get_diff_ext() == '.diff':
+    #    return HTMLPrettyDiffText()
     return None
 
 class BackendTestResult:
@@ -161,12 +170,15 @@ class BackendTestResult:
     def get_failed_html(self):
         html = ""
         for result in self._results:
-            actual = os.path.abspath(os.path.join(self._outdir, self._test, result))
-            expected = os.path.abspath(os.path.join(self._refsdir, self._test, result))
-            html += "<li><a href='%s'>actual</a> <a href='%s'>expected</a> " % (actual, expected)
-            if self._backend.has_diff(actual):
-                diff = os.path.abspath(actual + self._backend.get_diff_ext())
-                html += "<a href='%s'>diff</a> " % (diff)
+            actual = os.path.join(self._test, result)
+            actual_path = os.path.join(self._outdir, actual)
+            expected = os.path.join(self._refsdir, self._test, result)
+            if self.config.abs_paths:
+                expected = os.path.abspath(expected)
+            html += "<li><a href='../%s'>actual</a> <a href='%s'>expected</a> " % (actual, expected)
+            if self._backend.has_diff(actual_path):
+                diff = actual + self._backend.get_diff_ext()
+                html += "<a href='../%s'>diff</a> " % (diff)
                 if self.config.pretty_diff:
                     pretty_diff = create_pretty_diff(self._backend)
                     if pretty_diff:
@@ -183,6 +195,7 @@ class TestResult:
     def __init__(self, docsdir, refsdir, outdir, resultdir, results, backends):
         self._refsdir = refsdir
         self._outdir = outdir
+        self.config = Config()
 
         self._test = resultdir[len(self._outdir):].lstrip('/')
         self._doc = os.path.join(docsdir, self._test)
@@ -214,7 +227,8 @@ class TestResult:
             html += "<li>%s " % (backend.get_name())
             stderr = self._results[backend].get_stderr()
             if os.path.exists(stderr):
-                html += "<a href='%s'>stderr</a>" % (os.path.abspath(stderr))
+                stderr_name = stderr[len(self._outdir):].lstrip('/')
+                html += "<a href='../%s'>stderr</a>" % (stderr_name)
             html += "</li>\n%s" % (backend_html)
 
         if html:
@@ -263,8 +277,10 @@ class HTMLReport:
         except:
             raise
 
-    def create(self):
+    def create(self, launch_browser):
         html = "<html><body><a name='top'></a>"
+        if os.path.exists(os.path.join(self._outdir, '.exited_early')):
+            html += "<p style='border: 3px solid red; font-weight: bold; display: inline-block; padding: 3px'>Testing exited early</p>"
         if self.config.backends:
             backends = [get_backend(name) for name in self.config.backends]
         else:
@@ -281,15 +297,11 @@ class HTMLReport:
 
             results[root] = TestResult(self._docsdir, self._refsdir, self._outdir, root, files, backends)
 
-        tests = results.keys()
-        tests.sort()
-
         failed_anchors = []
         failed = ""
         crashed = ""
         failed_to_run = ""
-        for test_name in tests:
-            test = results[test_name]
+        for test_name, test in sorted(results.items()):
             if test.is_failed():
                 failed_anchors.append(test.get_test())
                 failed += test.get_failed_html()
@@ -311,7 +323,7 @@ class HTMLReport:
                     html += "<li><a href='#%s'>%s</a></li>" % (anchor, anchor)
                 html += "</ul>\n"
             if crashed:
-                html += "<li><a href='#crashed'>Tests Crashed(differences were found)</a></li>\n"
+                html += "<li><a href='#crashed'>Tests Crashed</a></li>\n"
             if failed_to_run:
                 html += "<li><a href='#failed_to_run'>Tests that failed to run (command returned an error status)</a></li>\n"
             html += "</ul>\n"
@@ -319,8 +331,8 @@ class HTMLReport:
         html += failed + crashed + failed_to_run + "</body></html>"
 
         report_index = os.path.join(self._htmldir, 'index.html')
-        f = open(report_index, 'wb')
-        f.write(html)
-        f.close()
+        with open(report_index, 'w') as f:
+            f.write(html)
 
-        subprocess.Popen(['xdg-open', report_index])
+        if launch_browser:
+            subprocess.Popen(['xdg-open', report_index])

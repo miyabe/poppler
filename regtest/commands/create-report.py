@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+from __future__ import absolute_import, division, print_function
 
 from commands import Command, register_command
 from HTMLReport import HTMLReport
@@ -40,11 +41,18 @@ class CreateReport(Command):
         parser.add_argument('-p', '--pretty-diff',
                             action = 'store_true', dest = 'pretty_diff', default = False,
                             help = 'Include pretty diff output')
+        parser.add_argument('-n', '--no-browser',
+                            action = 'store_false', dest = 'launch_browser', default = True,
+                            help = 'Do not launch a web browser with the results')
+        parser.add_argument('--no-absolute-paths',
+                            action = 'store_false', dest = 'use_abs_paths', default = True,
+                            help = 'Do use absolute paths in the generated HTML')
         parser.add_argument('tests')
 
     def run(self, options):
         config = Config()
         config.pretty_diff = options['pretty_diff']
+        config.abs_paths = options['use_abs_paths']
 
         doc = options['tests']
         if os.path.isdir(doc):
@@ -53,6 +61,8 @@ class CreateReport(Command):
             docs_dir = os.path.dirname(doc)
 
         report = HTMLReport(docs_dir, options['refs_dir'], options['out_dir'])
-        report.create()
+        report.create(options['launch_browser'])
+
+        return 0
 
 register_command('create-report', CreateReport)

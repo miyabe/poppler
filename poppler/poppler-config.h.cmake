@@ -6,6 +6,25 @@
 //
 //========================================================================
 
+//========================================================================
+//
+// Modified under the Poppler project - http://poppler.freedesktop.org
+//
+// All changes made under the Poppler project to this file are licensed
+// under GPL version 2 or later
+//
+// Copyright (C) 2014 Bogdan Cristea <cristeab@gmail.com>
+// Copyright (C) 2014 Hib Eris <hib@hiberis.nl>
+// Copyright (C) 2016 Tor Lillqvist <tml@collabora.com>
+// Copyright (C) 2017 Adrian Johnson <ajohnson@redneon.com>
+// Copyright (C) 2018 Adam Reichold <adam.reichold@t-online.de>
+// Copyright (C) 2018 Stefan Brüns <stefan.bruens@rwth-aachen.de>
+//
+// To see a description of the changes please see the Changelog file that
+// came with your tarball or type make ChangeLog if you are building from git
+//
+//========================================================================
+
 #ifndef POPPLER_CONFIG_H
 #define POPPLER_CONFIG_H
 
@@ -14,19 +33,9 @@
 // around #undef look odd, but it's to silence warnings about
 // redefining those symbols.
 
-/* Defines the poppler version */
+/* Defines the poppler version. */
 #ifndef POPPLER_VERSION
 #define POPPLER_VERSION "${POPPLER_VERSION}"
-#endif
-
-/* Enable multithreading support. */
-#ifndef MULTITHREADED
-#cmakedefine MULTITHREADED 1
-#endif
-
-/* Use fixedpoint. */
-#ifndef USE_FIXEDPOINT
-#cmakedefine USE_FIXEDPOINT 1
 #endif
 
 /* Use single precision arithmetic in the Splash backend */
@@ -97,43 +106,23 @@
 #cmakedefine HAVE_SYS_NDIR_H 1
 #endif
 
-/* Have FreeType2 include files */
-#ifndef HAVE_FREETYPE_H
-#cmakedefine HAVE_FREETYPE_H 1
-#endif
-
 /* Defines if use cms */
 #ifndef USE_CMS
 #cmakedefine USE_CMS 1
 #endif
 
-// Also, there are preprocessor symbols in the header files
-// that are used but never defined when building poppler using configure
-// or cmake: DISABLE_OUTLINE, DEBUG_MEM, SPLASH_CMYK, HAVE_T1LIB_H,
-// ENABLE_PLUGINS, DEBUG_FORMS, HAVE_FREETYPE_FREETYPE_H
+/* Use header-only classes from Boost in the Splash backend */
+#ifndef USE_BOOST_HEADERS
+#cmakedefine USE_BOOST_HEADERS 1
+#endif
 
 //------------------------------------------------------------------------
 // version
 //------------------------------------------------------------------------
 
 // copyright notice
-#define popplerCopyright "Copyright 2005-2012 The Poppler Developers - http://poppler.freedesktop.org"
+#define popplerCopyright "Copyright 2005-2019 The Poppler Developers - http://poppler.freedesktop.org"
 #define xpdfCopyright "Copyright 1996-2011 Glyph & Cog, LLC"
-
-//------------------------------------------------------------------------
-// popen
-//------------------------------------------------------------------------
-
-#if defined(_MSC_VER) || defined(__BORLANDC__)
-#define popen _popen
-#define pclose _pclose
-#endif
-
-#if defined(VMS) || defined(VMCMS) || defined(DOS) || defined(OS2) || defined(__EMX__) || defined(_WIN32) || defined(__DJGPP__) || defined(MACOS)
-#define POPEN_READ_MODE "rb"
-#else
-#define POPEN_READ_MODE "r"
-#endif
 
 //------------------------------------------------------------------------
 // Win32 stuff
@@ -145,29 +134,21 @@
 #define CDECL
 #endif
 
-#if defined(_WIN32)
-#ifdef _MSC_VER
-#define strtok_r strtok_s
-#elif __MINGW32__ && !defined(__WINPTHREADS_VERSION)
-char * strtok_r (char *s, const char *delim, char **save_ptr);
-#endif
-#endif
-
 //------------------------------------------------------------------------
 // Compiler
 //------------------------------------------------------------------------
 
 #if __GNUC__ > 2 || (__GNUC__ == 2 && __GNUC_MINOR__ > 4)
+#include <cstdio> // __MINGW_PRINTF_FORMAT is defined in the mingw stdio.h
+#ifdef __MINGW_PRINTF_FORMAT
+#define GCC_PRINTF_FORMAT(fmt_index, va_index) \
+	__attribute__((__format__(__MINGW_PRINTF_FORMAT, fmt_index, va_index)))
+#else
 #define GCC_PRINTF_FORMAT(fmt_index, va_index) \
 	__attribute__((__format__(__printf__, fmt_index, va_index)))
+#endif
 #else
 #define GCC_PRINTF_FORMAT(fmt_index, va_index)
 #endif
-
-#if defined(_MSC_VER)
-#define fmax(a, b) max(a, b)
-#define fmin(a, b) min(a, b)
-#endif
-
 
 #endif /* POPPLER_CONFIG_H */

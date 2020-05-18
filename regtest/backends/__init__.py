@@ -15,9 +15,11 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+from __future__ import absolute_import, division, print_function
 
-from hashlib import md5
+import hashlib
 import os
+import select
 import shutil
 import errno
 from Config import Config
@@ -47,6 +49,14 @@ class Backend:
     def get_diff_ext(self):
         return self._diff_ext
 
+    def __md5sum(self, ref_path):
+        md5 = hashlib.md5()
+        with open(ref_path,'rb') as f:
+            for chunk in iter(lambda: f.read(128 * md5.block_size), b''):
+                md5.update(chunk)
+
+        return md5.hexdigest()
+
     def __should_have_checksum(self, entry):
         if not entry.startswith(self._name):
             return False
@@ -58,13 +68,11 @@ class Backend:
         path = os.path.join(refs_path, self._name)
         md5_file = open(path + '.md5', 'w')
 
-        for entry in os.listdir(refs_path):
+        for entry in sorted(os.listdir(refs_path)):
             if not self.__should_have_checksum(entry):
                 continue
             ref_path = os.path.join(refs_path, entry)
-            f = open(ref_path, 'rb')
-            md5_file.write("%s %s\n" % (md5(f.read()).hexdigest(), ref_path))
-            f.close()
+            md5_file.write("%s %s\n" % (self.__md5sum(ref_path), ref_path))
             if delete_refs:
                 os.remove(ref_path)
 
@@ -90,10 +98,9 @@ class Backend:
                 continue
 
             result_path = os.path.join(out_path, basename)
-            f = open(result_path, 'rb')
-            result_md5sum = md5(f.read()).hexdigest()
+
+            result_md5sum = self.__md5sum(result_path);
             matched = md5sum == result_md5sum
-            f.close()
 
             if update_refs:
                 result_md5.append("%s %s\n" % (result_md5sum, ref_path))
@@ -138,6 +145,30 @@ class Backend:
                         raise
 
         return retval
+
+    def update_results(self, refs_path, out_path):
+        if not self.has_md5(refs_path):
+            path = os.path.join(refs_path, self._name)
+            md5_file = open(path + '.md5', 'w')
+
+            for entry in sorted(os.listdir(out_path)):
+                if not self.__should_have_checksum(entry):
+                    continue
+                result_path = os.path.join(out_path, entry)
+                ref_path = os.path.join(refs_path, entry)
+                md5_file.write("%s %s\n" % (self.__md5sum(result_path), ref_path))
+                shutil.copyfile(result_path, ref_path)
+
+            md5_file.close()
+
+        for ref in ('.crashed', '.failed', '.stderr'):
+            result_path = os.path.join(out_path, self._name + ref)
+            ref_path = os.path.join(refs_path, self._name + ref)
+
+            if os.path.exists(result_path):
+                shutil.copyfile(result_path, ref_path)
+            elif os.path.exists(ref_path):
+                os.remove(ref_path)
 
     def get_ref_names(self, refs_path):
         retval = []
@@ -188,13 +219,6 @@ class Backend:
             return False
         return os.path.exists(test_result + self._diff_ext)
 
-    def __create_stderr_file(self, stderr, out_path):
-        if not stderr:
-            return
-        stderr_file = open(out_path + '.stderr', 'wb')
-        stderr_file.write(stderr)
-        stderr_file.close()
-
     def __create_failed_file_if_needed(self, status, out_path):
         if os.WIFEXITED(status) or os.WEXITSTATUS(status) == 0:
             return False
@@ -205,10 +229,40 @@ class Backend:
 
         return True
 
-    def _check_exit_status(self, p, out_path):
-        stderr = p.stderr.read()
-        self.__create_stderr_file(stderr, out_path)
+    def __redirect_stderr_to_file(self, fd, out_path):
+        stderr_file = None
+        max_size = 1024 * 1024
+        read_set = [fd]
 
+        while read_set:
+            try:
+                rlist, wlist, xlist = select.select(read_set, [], [])
+            except select.error as e:
+                continue
+
+            if fd in rlist:
+                try:
+                    chunk = os.read(fd, 1024)
+                except OSError as e:
+                    if e.errno == errno.EIO:
+                        # Child process finished.
+                        chunk = ''
+                    else:
+                        raise e
+                if chunk:
+                    if stderr_file is None:
+                        stderr_file = open(out_path + '.stderr', 'wb')
+                    if max_size > 0:
+                        stderr_file.write(chunk)
+                        max_size -= len(chunk)
+                else:
+                    read_set.remove(fd)
+
+        if stderr_file is not None:
+            stderr_file.close()
+
+    def _check_exit_status(self, p, out_path):
+        self.__redirect_stderr_to_file(p.stderr.fileno(), out_path)
         status = p.wait()
 
         if not os.WIFEXITED(status):
@@ -220,29 +274,9 @@ class Backend:
 
         return True
 
-    def _check_exit_status2(self, p1, p2, out_path):
-        p1_stderr = p1.stderr.read()
-        status1 = p1.wait()
-        p2_stderr = p2.stderr.read()
-        status2 = p2.wait()
-
-        if p1_stderr or p2_stderr:
-            self.__create_stderr_file(p1_stderr + p2_stderr, out_path)
-
-        if not os.WIFEXITED(status1) or not os.WIFEXITED(status2):
-            open(out_path + '.crashed', 'w').close()
-            return False
-
-        if self.__create_failed_file_if_needed(status1, out_path):
-            return False
-        if self.__create_failed_file_if_needed(status2, out_path):
-            return False
-
-        return True
-
     def _diff_png(self, ref_path, result_path):
         try:
-            import Image, ImageChops
+            from PIL import Image, ImageChops
         except ImportError:
             raise NotImplementedError
 
@@ -254,7 +288,7 @@ class Backend:
     def _create_diff(self, ref_path, result_path):
         raise NotImplementedError
 
-    def create_refs(self, doc_path, refs_path):
+    def create_refs(self, doc_path, refs_path, password = None):
         raise NotImplementedError
 
 _backends = {}

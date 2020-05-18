@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+from __future__ import absolute_import, division, print_function
 
 from backends import Backend, register_backend
 import subprocess
@@ -26,11 +27,13 @@ class Cairo(Backend):
         Backend.__init__(self, name, '.diff.png')
         self._pdftocairo = os.path.join(self._utilsdir, 'pdftocairo');
 
-    def create_refs(self, doc_path, refs_path):
+    def create_refs(self, doc_path, refs_path, password = None):
         out_path = os.path.join(refs_path, 'cairo')
-        p1 = subprocess.Popen([self._pdftocairo, '-cropbox', '-r', '72', '-e', '-png', doc_path, out_path], stderr = subprocess.PIPE)
-        p2 = subprocess.Popen([self._pdftocairo, '-cropbox', '-r', '72', '-o', '-png', doc_path, out_path], stderr = subprocess.PIPE)
-        return self._check_exit_status2(p1, p2, out_path)
+        cmd = [self._pdftocairo, '-cropbox', '-r', '72', '-png', doc_path, out_path]
+        if password is not None:
+            cmd.extend(['-opw', password, '-upw', password])
+        p = subprocess.Popen(cmd, stderr = subprocess.PIPE)
+        return self._check_exit_status(p, out_path)
 
     def _create_diff(self, ref_path, result_path):
         self._diff_png(ref_path, result_path)

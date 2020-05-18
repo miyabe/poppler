@@ -6,11 +6,21 @@
 //
 //========================================================================
 
-#include <config.h>
+//========================================================================
+//
+// Modified under the Poppler project - http://poppler.freedesktop.org
+//
+// All changes made under the Poppler project to this file are licensed
+// under GPL version 2 or later
+//
+// Copyright (C) 2019 Volker Krause <vkrause@kde.org>
+//
+// To see a description of the changes please see the Changelog file that
+// came with your tarball or type make ChangeLog if you are building from git
+//
+//========================================================================
 
-#ifdef USE_GCC_PRAGMAS
-#pragma implementation
-#endif
+#include <config.h>
 
 #include "Object.h"
 #include "Stream.h"
@@ -22,7 +32,7 @@
 
 JArithmeticDecoderStats::JArithmeticDecoderStats(int contextSizeA) {
   contextSize = contextSizeA;
-  cxTab = (Guchar *)gmallocn(contextSize, sizeof(Guchar));
+  cxTab = (unsigned char *)gmallocn(contextSize, sizeof(unsigned char));
   reset();
 }
 
@@ -46,7 +56,7 @@ void JArithmeticDecoderStats::copyFrom(JArithmeticDecoderStats *stats) {
   memcpy(cxTab, stats->cxTab, contextSize);
 }
 
-void JArithmeticDecoderStats::setEntry(Guint cx, int i, int mps) {
+void JArithmeticDecoderStats::setEntry(unsigned int cx, int i, int mps) {
   cxTab[cx] = (i << 1) + mps;
 }
 
@@ -54,7 +64,7 @@ void JArithmeticDecoderStats::setEntry(Guint cx, int i, int mps) {
 // JArithmeticDecoder
 //------------------------------------------------------------------------
 
-Guint JArithmeticDecoder::qeTab[47] = {
+unsigned const int JArithmeticDecoder::qeTab[47] = {
   0x56010000, 0x34010000, 0x18010000, 0x0AC10000,
   0x05210000, 0x02210000, 0x56010000, 0x54010000,
   0x48010000, 0x38010000, 0x30010000, 0x24010000,
@@ -69,32 +79,32 @@ Guint JArithmeticDecoder::qeTab[47] = {
   0x00050000, 0x00010000, 0x56010000
 };
 
-int JArithmeticDecoder::nmpsTab[47] = {
+const int JArithmeticDecoder::nmpsTab[47] = {
    1,  2,  3,  4,  5, 38,  7,  8,  9, 10, 11, 12, 13, 29, 15, 16,
   17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
   33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 45, 46
 };
 
-int JArithmeticDecoder::nlpsTab[47] = {
+const int JArithmeticDecoder::nlpsTab[47] = {
    1,  6,  9, 12, 29, 33,  6, 14, 14, 14, 17, 18, 20, 21, 14, 14,
   15, 16, 17, 18, 19, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
   30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 46
 };
 
-int JArithmeticDecoder::switchTab[47] = {
+const int JArithmeticDecoder::switchTab[47] = {
   1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0,
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 };
 
 JArithmeticDecoder::JArithmeticDecoder() {
-  str = NULL;
+  str = nullptr;
   dataLen = 0;
-  limitStream = gFalse;
+  limitStream = false;
   nBytesRead = 0;
 }
 
-inline Guint JArithmeticDecoder::readByte() {
+inline unsigned int JArithmeticDecoder::readByte() {
   if (limitStream) {
     --dataLen;
     if (dataLen < 0) {
@@ -102,7 +112,7 @@ inline Guint JArithmeticDecoder::readByte() {
     }
   }
   ++nBytesRead;
-  return (Guint)str->getChar() & 0xff;
+  return (unsigned int)str->getChar() & 0xff;
 }
 
 JArithmeticDecoder::~JArithmeticDecoder() {
@@ -122,8 +132,8 @@ void JArithmeticDecoder::start() {
 }
 
 void JArithmeticDecoder::restart(int dataLenA) {
-  Guint cAdd;
-  GBool prevFF;
+  unsigned int cAdd;
+  bool prevFF;
   int k, nBits;
 
   if (dataLen >= 0) {
@@ -135,7 +145,7 @@ void JArithmeticDecoder::restart(int dataLenA) {
     k = (-dataLen - 1) * 8 - ct;
     dataLen = dataLenA;
     cAdd = 0;
-    prevFF = gFalse;
+    prevFF = false;
     while (k > 0) {
       buf0 = readByte();
       if (prevFF) {
@@ -169,10 +179,10 @@ void JArithmeticDecoder::cleanup() {
   }
 }
 
-int JArithmeticDecoder::decodeBit(Guint context,
+int JArithmeticDecoder::decodeBit(unsigned int context,
 				  JArithmeticDecoderStats *stats) {
   int bit;
-  Guint qe;
+  unsigned int qe;
   int iCX, mpsCX;
 
   iCX = stats->cxTab[context] >> 1;
@@ -233,7 +243,7 @@ int JArithmeticDecoder::decodeBit(Guint context,
   return bit;
 }
 
-int JArithmeticDecoder::decodeByte(Guint context,
+int JArithmeticDecoder::decodeByte(unsigned int context,
 				   JArithmeticDecoderStats *stats) {
   int byte;
   int i;
@@ -245,9 +255,9 @@ int JArithmeticDecoder::decodeByte(Guint context,
   return byte;
 }
 
-GBool JArithmeticDecoder::decodeInt(int *x, JArithmeticDecoderStats *stats) {
+bool JArithmeticDecoder::decodeInt(int *x, JArithmeticDecoderStats *stats) {
   int s;
-  Guint v;
+  unsigned int v;
   int i;
 
   prev = 1;
@@ -297,13 +307,13 @@ GBool JArithmeticDecoder::decodeInt(int *x, JArithmeticDecoderStats *stats) {
 
   if (s) {
     if (v == 0) {
-      return gFalse;
+      return false;
     }
     *x = -(int)v;
   } else {
     *x = (int)v;
   }
-  return gTrue;
+  return true;
 }
 
 int JArithmeticDecoder::decodeIntBit(JArithmeticDecoderStats *stats) {
@@ -318,9 +328,9 @@ int JArithmeticDecoder::decodeIntBit(JArithmeticDecoderStats *stats) {
   return bit;
 }
 
-Guint JArithmeticDecoder::decodeIAID(Guint codeLen,
+unsigned int JArithmeticDecoder::decodeIAID(unsigned int codeLen,
 				     JArithmeticDecoderStats *stats) {
-  Guint i;
+  unsigned int i;
   int bit;
 
   prev = 1;

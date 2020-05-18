@@ -82,7 +82,6 @@ pgd_attachments_create_list (GtkTreeModel *model)
 	
 	treeview = gtk_tree_view_new_with_model (GTK_TREE_MODEL (model));
 	gtk_tree_view_set_headers_visible (GTK_TREE_VIEW (treeview), TRUE);
-	gtk_tree_view_set_rules_hint (GTK_TREE_VIEW (treeview), TRUE);
 
 	renderer = gtk_cell_renderer_text_new ();
 	gtk_tree_view_insert_column_with_attributes (GTK_TREE_VIEW (treeview),
@@ -168,8 +167,8 @@ pgd_attachments_save_button_clicked (GtkButton   *button,
 	file_chooser = gtk_file_chooser_dialog_new ("Save attachment",
 						    GTK_WINDOW (gtk_widget_get_toplevel (GTK_WIDGET (treeview))),
 						    GTK_FILE_CHOOSER_ACTION_SAVE,
-						    GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
-						    GTK_STOCK_SAVE, GTK_RESPONSE_ACCEPT,
+						    "_Cancel", GTK_RESPONSE_CANCEL,
+						    "_Save", GTK_RESPONSE_ACCEPT,
 						    NULL);
 	gtk_file_chooser_set_current_name (GTK_FILE_CHOOSER (file_chooser), attachment->name);
 	g_signal_connect (G_OBJECT (file_chooser), "response",
@@ -187,7 +186,7 @@ attachment_save_callback (const gchar  *buf,
 {
 	GChecksum *cs = (GChecksum *)data;
 
-	g_checksum_update (cs, buf, count);
+	g_checksum_update (cs, (guchar *) buf, count);
 
 	return TRUE;
 }

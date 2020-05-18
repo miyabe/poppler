@@ -5,12 +5,13 @@
 // This file is licensed under the GPLv2 or later
 //
 // Copyright (C) 2009 Stefan Thomas <thomas@eload24.com>
-// Copyright (C) 2010 Adrian Johnson <ajohnson@redneon.com>
+// Copyright (C) 2010, 2012, 2017 Adrian Johnson <ajohnson@redneon.com>
 // Copyright (C) 2010 Jürg Billeter <j@bitron.ch>
 // Copyright (C) 2010 Harry Roberts <harry.roberts@midnight-labs.org>
 // Copyright (C) 2010 Brian Cameron <brian.cameron@oracle.com>
 // Copyright (C) 2011 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2011 Thomas Freitag <Thomas.Freitag@alfa.de>
+// Copyright (C) 2018 Martin Packman <gzlist@googlemail.com>
 //
 //========================================================================
 
@@ -24,31 +25,37 @@
 #include <sys/types.h>
 #include "ImgWriter.h"
 
-extern "C" {
-#include <jpeglib.h>
-}
+struct JpegWriterPrivate;
 
 class JpegWriter : public ImgWriter
 {
-	public:
-		JpegWriter(int quality, bool progressive, J_COLOR_SPACE colorMode = JCS_RGB);
-		JpegWriter(J_COLOR_SPACE colorMode = JCS_RGB);
-		~JpegWriter();
-		
-		bool init(FILE *f, int width, int height, int hDPI, int vDPI);
-		
-		bool writePointers(unsigned char **rowPointers, int rowCount);
-		bool writeRow(unsigned char **row);
-		
-		bool close();
-		bool supportCMYK() { return colorMode == JCS_CMYK; }
-	
-	private:
-		bool progressive;
-		int quality;
-		J_COLOR_SPACE colorMode;
-		struct jpeg_compress_struct cinfo;
-		struct jpeg_error_mgr jerr;
+public:
+  /* RGB                 - 3 bytes/pixel
+   * GRAY                - 1 byte/pixel
+   * CMYK                - 4 bytes/pixel
+   */
+  enum Format { RGB, GRAY, CMYK };
+
+  JpegWriter(int quality, bool progressive, Format format = RGB);
+  JpegWriter(Format format = RGB);
+  ~JpegWriter() override;
+
+  JpegWriter(const JpegWriter &other) = delete;
+  JpegWriter& operator=(const JpegWriter &other) = delete;
+
+  void setQuality(int quality);
+  void setProgressive(bool progressive);
+  void setOptimize(bool optimize);
+  bool init(FILE *f, int width, int height, int hDPI, int vDPI) override;
+
+  bool writePointers(unsigned char **rowPointers, int rowCount) override;
+  bool writeRow(unsigned char **row) override;
+
+  bool close() override;
+  bool supportCMYK() override;
+
+private:
+  JpegWriterPrivate *priv;
 };
 
 #endif

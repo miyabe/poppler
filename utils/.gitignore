@@ -1,5 +1,7 @@
 .deps
 .libs
+*.la
+*.lo
 Makefile
 Makefile.in
 pdfseparate
@@ -13,3 +15,4 @@ pdftops
 pdftotext
 pdftocairo
 pdfdetach
+pdfsig

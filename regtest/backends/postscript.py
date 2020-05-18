@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+from __future__ import absolute_import, division, print_function
 
 from backends import Backend, register_backend
 import subprocess
@@ -26,9 +27,12 @@ class PostScript(Backend):
         Backend.__init__(self, name)
         self._pdftops = os.path.join(self._utilsdir, 'pdftops');
 
-    def create_refs(self, doc_path, refs_path):
+    def create_refs(self, doc_path, refs_path, password = None):
         out_path = os.path.join(refs_path, 'postscript')
-        p = subprocess.Popen([self._pdftops, doc_path, out_path + '.ps'], stderr = subprocess.PIPE)
+        cmd = [self._pdftops, doc_path, out_path + '.ps']
+        if password is not None:
+            cmd.extend(['-opw', password, '-upw', password])
+        p = subprocess.Popen(cmd, stderr = subprocess.PIPE)
         return self._check_exit_status(p, out_path)
 
 register_backend('postscript', PostScript)

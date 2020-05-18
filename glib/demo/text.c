@@ -38,6 +38,10 @@ typedef struct {
 	GtkTextBuffer   *buffer;
         GtkWidget       *treeview;
 	GtkListStore    *model;
+        GtkWidget       *area_x1;
+        GtkWidget       *area_y1;
+        GtkWidget       *area_x2;
+        GtkWidget       *area_y2;
 
         /* Text attributes */
         GList           *text_attrs;
@@ -47,6 +51,7 @@ typedef struct {
         GtkWidget       *text_color;
 
 	gint             page;
+        PopplerRectangle area;
 } PgdTextDemo;
 
 static void
@@ -99,7 +104,7 @@ pgd_text_get_text (GtkWidget   *button,
         demo->text_attrs = NULL;
 
 	timer = g_timer_new ();
-	text = poppler_page_get_text (page);
+	text = poppler_page_get_text_for_area (page, &demo->area);
 	g_timer_stop (timer);
 
 	if (text) {
@@ -109,17 +114,17 @@ pgd_text_get_text (GtkWidget   *button,
 		text_elapsed = g_timer_elapsed (timer, NULL);
 
 		g_timer_start (timer);
-		poppler_page_get_text_layout (page, &recs, &n_recs);
+		poppler_page_get_text_layout_for_area (page, &demo->area, &recs, &n_recs);
 		g_timer_stop (timer);
 
                 layout_elapsed = g_timer_elapsed (timer, NULL);
 
                 g_timer_start (timer);
-                demo->text_attrs = poppler_page_get_text_attributes (page);
+                demo->text_attrs = poppler_page_get_text_attributes_for_area (page, &demo->area);
                 g_timer_stop (timer);
 
-		str = g_strdup_printf ("<i>got text in %.4f seconds, text layout in %.4f seconds, text attrs in %.4f seconds</i>",
-				       text_elapsed, layout_elapsed, g_timer_elapsed (timer, NULL));
+		str = g_strdup_printf ("<i>got %ld chars in %.4f seconds, %u layout units in %.4f seconds, text attrs in %.4f seconds</i>",
+				       g_utf8_strlen(text, -1), text_elapsed, n_recs, layout_elapsed, g_timer_elapsed (timer, NULL));
 		gtk_label_set_markup (GTK_LABEL (demo->timer_label), str);
 		g_free (str);
 	} else {
@@ -262,15 +267,51 @@ pgd_text_view_query_tooltip (GtkTextView   *textview,
                 g_free (x2);
                 g_free (y2);
 
-                page = page = poppler_document_get_page (demo->doc, demo->page);
+                page = poppler_document_get_page (demo->doc, demo->page);
                 text = poppler_page_get_selected_text (page, POPPLER_SELECTION_GLYPH, &rect);
                 gtk_tooltip_set_text (tooltip, text);
                 g_free (text);
                 g_object_unref (page);
+                return TRUE;
+        } else {
+                return FALSE;
         }
-
 }
 
+static void
+pgd_text_area_selector_setup (PgdTextDemo *demo)
+{
+        PopplerPage *page;
+        gdouble      width, height;
+
+        page = poppler_document_get_page (demo->doc, demo->page);
+        if (!page)
+                return;
+
+        poppler_page_get_size (page, &width, &height);
+
+        gtk_spin_button_set_range (GTK_SPIN_BUTTON (demo->area_x1), -10, width - 10);
+        gtk_spin_button_set_range (GTK_SPIN_BUTTON (demo->area_y1), -10, height - 10);
+        gtk_spin_button_set_range (GTK_SPIN_BUTTON (demo->area_x2), 0, width + 10);
+        gtk_spin_button_set_range (GTK_SPIN_BUTTON (demo->area_y2), 0, height + 10);
+
+        gtk_spin_button_set_value (GTK_SPIN_BUTTON (demo->area_x1), 0);
+        gtk_spin_button_set_value (GTK_SPIN_BUTTON (demo->area_y1), 0);
+        gtk_spin_button_set_value (GTK_SPIN_BUTTON (demo->area_x2), width);
+        gtk_spin_button_set_value (GTK_SPIN_BUTTON (demo->area_y2), height);
+
+        g_object_unref (page);
+}
+
+static void
+pgd_text_area_selector_value_changed (GtkSpinButton *spinbutton,
+                                      PgdTextDemo   *demo)
+{
+        demo->area.x1 = gtk_spin_button_get_value (GTK_SPIN_BUTTON (demo->area_x1));
+        demo->area.y1 = gtk_spin_button_get_value (GTK_SPIN_BUTTON (demo->area_y1));
+        demo->area.x2 = gtk_spin_button_get_value (GTK_SPIN_BUTTON (demo->area_x2));
+        demo->area.y2 = gtk_spin_button_get_value (GTK_SPIN_BUTTON (demo->area_y2));
+}
 
 static void
 pgd_text_page_selector_value_changed (GtkSpinButton *spinbutton,
@@ -285,12 +326,11 @@ pgd_text_create_widget (PopplerDocument *document)
 	PgdTextDemo      *demo;
 	GtkWidget        *label;
 	GtkWidget        *vbox, *vbox2;
-	GtkWidget	 *textinfo;
-	GtkWidget        *hbox, *page_selector;
+	GtkWidget        *hbox, *page_selector, *area_hbox;
 	GtkWidget        *button;
 	GtkWidget        *swindow, *textview, *treeview;
 	GtkTreeSelection *selection;
-        GtkWidget        *frame, *alignment, *table;
+        GtkWidget        *frame, *table;
 	GtkWidget        *hpaned;
 	GtkCellRenderer  *renderer;
 	gchar            *str;
@@ -305,7 +345,6 @@ pgd_text_create_widget (PopplerDocument *document)
 
 	vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
 	vbox2 = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
-	textinfo = gtk_label_new ("TextInfo");
 
 	hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
 
@@ -325,6 +364,73 @@ pgd_text_create_widget (PopplerDocument *document)
 	gtk_box_pack_start (GTK_BOX (hbox), label, FALSE, TRUE, 0);
 	gtk_widget_show (label);
 	g_free (str);
+
+        gtk_box_pack_start (GTK_BOX (vbox), hbox, FALSE, TRUE, 0);
+	gtk_widget_show (hbox);
+
+        hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
+
+        area_hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+	label = gtk_label_new ("X1:");
+	gtk_box_pack_start (GTK_BOX (area_hbox), label, TRUE, TRUE, 0);
+	gtk_widget_show (label);
+
+	demo->area_x1 = gtk_spin_button_new_with_range (0, 0, 0.01);
+	g_signal_connect (demo->area_x1, "value-changed",
+			  G_CALLBACK (pgd_text_area_selector_value_changed),
+			  demo);
+	gtk_box_pack_start (GTK_BOX (area_hbox), demo->area_x1, TRUE, TRUE, 0);
+	gtk_widget_show (demo->area_x1);
+
+	gtk_box_pack_start (GTK_BOX (hbox), area_hbox, FALSE, TRUE, 0);
+	gtk_widget_show (area_hbox);
+
+        area_hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+	label = gtk_label_new ("Y1:");
+	gtk_box_pack_start (GTK_BOX (area_hbox), label, TRUE, TRUE, 0);
+	gtk_widget_show (label);
+
+	demo->area_y1 = gtk_spin_button_new_with_range (0, 0, 0.01);
+        g_signal_connect (demo->area_y1, "value-changed",
+			  G_CALLBACK (pgd_text_area_selector_value_changed),
+			  demo);
+	gtk_box_pack_start (GTK_BOX (area_hbox), demo->area_y1, TRUE, TRUE, 0);
+	gtk_widget_show (demo->area_y1);
+
+	gtk_box_pack_start (GTK_BOX (hbox), area_hbox, FALSE, TRUE, 0);
+	gtk_widget_show (area_hbox);
+
+        area_hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+	label = gtk_label_new ("X2:");
+	gtk_box_pack_start (GTK_BOX (area_hbox), label, TRUE, TRUE, 0);
+	gtk_widget_show (label);
+
+	demo->area_x2 = gtk_spin_button_new_with_range (0, 0, 0.01);
+        g_signal_connect (demo->area_x2, "value-changed",
+                          G_CALLBACK (pgd_text_area_selector_value_changed),
+                          demo);
+	gtk_box_pack_start (GTK_BOX (area_hbox), demo->area_x2, TRUE, TRUE, 0);
+	gtk_widget_show (demo->area_x2);
+
+	gtk_box_pack_start (GTK_BOX (hbox), area_hbox, FALSE, TRUE, 0);
+	gtk_widget_show (area_hbox);
+
+        area_hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+	label = gtk_label_new ("Y2:");
+	gtk_box_pack_start (GTK_BOX (area_hbox), label, TRUE, TRUE, 0);
+	gtk_widget_show (label);
+
+	demo->area_y2 = gtk_spin_button_new_with_range (0, 0, 0.01);
+        g_signal_connect (demo->area_y2, "value-changed",
+                          G_CALLBACK (pgd_text_area_selector_value_changed),
+                          demo);
+	gtk_box_pack_start (GTK_BOX (area_hbox), demo->area_y2, TRUE, TRUE, 0);
+	gtk_widget_show (demo->area_y2);
+
+	gtk_box_pack_start (GTK_BOX (hbox), area_hbox, FALSE, TRUE, 0);
+	gtk_widget_show (area_hbox);
+
+        pgd_text_area_selector_setup (demo);
 
 	button = gtk_button_new_with_label ("Get Text");
 	g_signal_connect (G_OBJECT (button), "clicked",
@@ -409,12 +515,16 @@ pgd_text_create_widget (PopplerDocument *document)
         gtk_frame_set_label_widget (GTK_FRAME (frame), label);
         gtk_widget_show (label);
 
-        alignment = gtk_alignment_new (0.5, 0.5, 1, 1);
-        gtk_alignment_set_padding (GTK_ALIGNMENT (alignment), 5, 5, 12, 5);
-        gtk_container_add (GTK_CONTAINER (frame), alignment);
-        gtk_widget_show (alignment);
-
         table = gtk_grid_new ();
+        gtk_widget_set_margin_top (table, 5);
+        gtk_widget_set_margin_bottom (table, 5);
+#if GTK_CHECK_VERSION(3, 12, 0)
+        gtk_widget_set_margin_start (table, 12);
+        gtk_widget_set_margin_end (table, 5);
+#else
+        gtk_widget_set_margin_left (table, 12);
+        gtk_widget_set_margin_right (table, 5);
+#endif
         gtk_grid_set_column_spacing (GTK_GRID (table), 6);
         gtk_grid_set_row_spacing (GTK_GRID (table), 6);
 
@@ -427,7 +537,7 @@ pgd_text_create_widget (PopplerDocument *document)
         demo->text_color = gtk_image_new ();
         pgd_table_add_property_with_custom_widget (GTK_GRID (table), "<b>Color:</b>", demo->text_color, &row);
 
-        gtk_container_add (GTK_CONTAINER (alignment), table);
+        gtk_container_add (GTK_CONTAINER (frame), table);
         gtk_widget_show (table);
 
 	gtk_box_pack_start (GTK_BOX (vbox2), frame, FALSE, FALSE, 12);

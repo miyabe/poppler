@@ -1,6 +1,7 @@
 /* poppler-input-stream.h: glib interface to poppler
  *
  * Copyright (C) 2012 Carlos Garcia Campos <carlosgc@gnome.org>
+ * Copyright (C) 2019 Albert Astals Cid <aacid@kde.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,42 +32,43 @@ class PopplerInputStream: public BaseStream {
 public:
 
   PopplerInputStream(GInputStream *inputStream, GCancellable *cancellableA,
-                     Guint startA, GBool limitedA, Guint lengthA, Object *dictA);
-  virtual ~PopplerInputStream();
-  virtual Stream *makeSubStream(Guint start, GBool limited,
-                                Guint lengthA, Object *dictA);
-  virtual StreamKind getKind() { return strWeird; }
-  virtual void reset();
-  virtual void close();
-  virtual int getChar()
+                     Goffset startA, bool limitedA, Goffset lengthA, Object &&dictA);
+  ~PopplerInputStream() override;
+  BaseStream *copy() override;
+  Stream *makeSubStream(Goffset start, bool limited,
+                        Goffset lengthA, Object &&dictA) override;
+  StreamKind getKind() const override { return strWeird; }
+  void reset() override;
+  void close() override;
+  int getChar() override
     { return (bufPtr >= bufEnd && !fillBuf()) ? EOF : (*bufPtr++ & 0xff); }
-  virtual int lookChar()
+  int lookChar() override
     { return (bufPtr >= bufEnd && !fillBuf()) ? EOF : (*bufPtr & 0xff); }
-  virtual int getPos() { return bufPos + (bufPtr - buf); }
-  virtual void setPos(Guint pos, int dir = 0);
-  virtual Guint getStart() { return start; }
-  virtual void moveStart(int delta);
+  Goffset getPos() override { return bufPos + (bufPtr - buf); }
+  void setPos(Goffset pos, int dir = 0) override;
+  Goffset getStart() override { return start; }
+  void moveStart(Goffset delta) override;
 
-  virtual int getUnfilteredChar() { return getChar(); }
-  virtual void unfilteredReset() { reset(); }
+  int getUnfilteredChar() override { return getChar(); }
+  void unfilteredReset() override { reset(); }
 
 private:
 
-  GBool fillBuf();
+  bool fillBuf();
 
-  virtual GBool hasGetChars() { return true; }
-  virtual int getChars(int nChars, Guchar *buffer);
+  bool hasGetChars() override { return true; }
+  int getChars(int nChars, unsigned char *buffer) override;
 
   GInputStream *inputStream;
   GCancellable *cancellable;
-  Guint start;
-  GBool limited;
+  Goffset start;
+  bool limited;
   char buf[inputStreamBufSize];
   char *bufPtr;
   char *bufEnd;
-  Guint bufPos;
+  Goffset bufPos;
   int savePos;
-  GBool saved;
+  bool saved;
 };
 
 #endif /* __GI_SCANNER__ */

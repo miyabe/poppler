@@ -12,6 +12,8 @@
 // under GPL version 2 or later
 //
 // Copyright (C) 2010 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2013 Thomas Freitag <Thomas.Freitag@alfa.de>
+// Copyright (C) 2019 Stefan Brüns <stefan.bruens@rwth-aachen.de>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -20,14 +22,11 @@
 
 #include <config.h>
 
-#ifdef USE_GCC_PRAGMAS
-#pragma implementation
-#endif
-
-#include <stdlib.h>
-#include <string.h>
+#include <cstdlib>
+#include <cstring>
 #include "goo/gmem.h"
 #include "SplashErrorCodes.h"
+#include "SplashMath.h"
 #include "SplashPath.h"
 #include "SplashXPath.h"
 #include "SplashXPathScanner.h"
@@ -46,7 +45,7 @@
 
 SplashClip::SplashClip(SplashCoord x0, SplashCoord y0,
 		       SplashCoord x1, SplashCoord y1,
-		       GBool antialiasA) {
+		       bool antialiasA) {
   antialias = antialiasA;
   if (x0 < x1) {
     xMin = x0;
@@ -66,9 +65,9 @@ SplashClip::SplashClip(SplashCoord x0, SplashCoord y0,
   yMinI = splashFloor(yMin);
   xMaxI = splashCeil(xMax) - 1;
   yMaxI = splashCeil(yMax) - 1;
-  paths = NULL;
-  flags = NULL;
-  scanners = NULL;
+  paths = nullptr;
+  flags = nullptr;
+  scanners = nullptr;
   length = size = 0;
 }
 
@@ -88,7 +87,7 @@ SplashClip::SplashClip(SplashClip *clip) {
   length = clip->length;
   size = clip->size;
   paths = (SplashXPath **)gmallocn(size, sizeof(SplashXPath *));
-  flags = (Guchar *)gmallocn(size, sizeof(Guchar));
+  flags = (unsigned char *)gmallocn(size, sizeof(unsigned char));
   scanners = (SplashXPathScanner **)
                  gmallocn(size, sizeof(SplashXPathScanner *));
   for (i = 0; i < length; ++i) {
@@ -127,7 +126,7 @@ void SplashClip::grow(int nPaths) {
       size *= 2;
     }
     paths = (SplashXPath **)greallocn(paths, size, sizeof(SplashXPath *));
-    flags = (Guchar *)greallocn(flags, size, sizeof(Guchar));
+    flags = (unsigned char *)greallocn(flags, size, sizeof(unsigned char));
     scanners = (SplashXPathScanner **)
                    greallocn(scanners, size, sizeof(SplashXPathScanner *));
   }
@@ -144,9 +143,9 @@ void SplashClip::resetToRect(SplashCoord x0, SplashCoord y0,
   gfree(paths);
   gfree(flags);
   gfree(scanners);
-  paths = NULL;
-  flags = NULL;
-  scanners = NULL;
+  paths = nullptr;
+  flags = nullptr;
+  scanners = nullptr;
   length = size = 0;
 
   if (x0 < x1) {
@@ -213,11 +212,11 @@ SplashError SplashClip::clipToRect(SplashCoord x0, SplashCoord y0,
 }
 
 SplashError SplashClip::clipToPath(SplashPath *path, SplashCoord *matrix,
-				   SplashCoord flatness, GBool eo) {
+				   SplashCoord flatness, bool eo) {
   SplashXPath *xPath;
   int yMinAA, yMaxAA;
 
-  xPath = new SplashXPath(path, matrix, flatness, gTrue);
+  xPath = new SplashXPath(path, matrix, flatness, true);
 
   // check for an empty path
   if (xPath->length == 0) {
@@ -334,7 +333,7 @@ SplashClipResult SplashClip::testSpan(int spanXMin, int spanXMax, int spanY) {
   return splashClipAllInside;
 }
 
-void SplashClip::clipAALine(SplashBitmap *aaBuf, int *x0, int *x1, int y) {
+void SplashClip::clipAALine(SplashBitmap *aaBuf, int *x0, int *x1, int y, bool adjustVertLine) {
   int xx0, xx1, xx, yy, i;
   SplashColorPtr p;
 
@@ -351,7 +350,7 @@ void SplashClip::clipAALine(SplashBitmap *aaBuf, int *x0, int *x1, int y) {
       for (xx = xx0; xx + 7 < xx1; xx += 8) {
 	*p++ = 0;
       }
-      if (xx < xx1) {
+      if (xx < xx1 && !adjustVertLine) {
 	*p &= 0xff >> (xx1 & 7);
       }
     }
@@ -364,7 +363,7 @@ void SplashClip::clipAALine(SplashBitmap *aaBuf, int *x0, int *x1, int y) {
     xx0 = 0;
   }
   xx1 = (*x1 + 1) * splashAASize;
-  if (xx0 < xx1) {
+  if (xx0 < xx1 && !adjustVertLine) {
     for (yy = 0; yy < splashAASize; ++yy) {
       p = aaBuf->getDataPtr() + yy * aaBuf->getRowSize() + (xx0 >> 3);
       xx = xx0;
@@ -407,4 +406,19 @@ void SplashClip::clipAALine(SplashBitmap *aaBuf, int *x0, int *x1, int y) {
       *x1 = *x1 + 1;
     }
   }
+}
+
+bool SplashClip::testClipPaths(int x, int y) {
+  if (antialias) {
+    x *= splashAASize;
+    y *= splashAASize;
+  }
+
+  for (int i = 0; i < length; ++i) {
+    if (!scanners[i]->test(x, y)) {
+      return false;
+    }
+  }
+
+  return true;
 }

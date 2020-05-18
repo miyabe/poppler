@@ -32,7 +32,7 @@ pgd_table_add_property_with_custom_widget (GtkGrid     *table,
 	GtkWidget *label;
 
 	label = gtk_label_new (NULL);
-	g_object_set (G_OBJECT (label), "xalign", 0.0, NULL);
+	g_object_set (G_OBJECT (label), "xalign", 0.0, "yalign", 0.0, NULL);
 	gtk_label_set_markup (GTK_LABEL (label), markup);
 	gtk_grid_attach (GTK_GRID (table), label, 0, *row, 1, 1);
 	gtk_widget_show (label);
@@ -151,30 +151,32 @@ pgd_action_view_add_destination (GtkWidget   *action_view,
 		pgd_table_add_property (table, "<b>Zoom:</b>", str, row);
 		g_free (str);
 	} else {
-		pgd_table_add_property (table, "<b>Named Dest:</b>", dest->named_dest, row);
-
 		if (document && !remote) {
 			PopplerDest *new_dest;
 
 			new_dest = poppler_document_find_dest (document, dest->named_dest);
 			if (new_dest) {
-				GtkWidget *new_table, *alignment;
+				GtkWidget *new_table;
 				gint       new_row = 0;
 
-				alignment = gtk_alignment_new (0.5, 0.5, 1, 1);
-				gtk_alignment_set_padding (GTK_ALIGNMENT (alignment), 5, 5, 12, 5);
-				
 				new_table = gtk_grid_new ();
+				gtk_widget_set_margin_top (new_table, 5);
+				gtk_widget_set_margin_bottom (new_table, 5);
+#if GTK_CHECK_VERSION(3, 12, 0)
+				gtk_widget_set_margin_start (new_table, 12);
+				gtk_widget_set_margin_end (new_table, 5);
+#else
+				gtk_widget_set_margin_left (new_table, 12);
+				gtk_widget_set_margin_right (new_table, 5);
+#endif
 				gtk_grid_set_column_spacing (GTK_GRID (new_table), 6);
 				gtk_grid_set_row_spacing (GTK_GRID (new_table), 6);
-				gtk_grid_attach (GTK_GRID(table), alignment, 0, *row, 1, 1);
-				gtk_widget_show (alignment);
 				
 				pgd_action_view_add_destination (action_view, GTK_GRID (new_table),
 								 new_dest, FALSE, &new_row);
 				poppler_dest_free (new_dest);
 
-				gtk_container_add (GTK_CONTAINER (alignment), new_table);
+				gtk_grid_attach (GTK_GRID(table), new_table, 0, *row, 1, 1);
 				gtk_widget_show (new_table);
 
 				*row += 1;
@@ -270,8 +272,16 @@ pgd_action_view_play_rendition (GtkWidget    *button,
 		uri = g_file_get_uri (file);
 		g_object_unref (file);
 		if (uri) {
+#if GTK_CHECK_VERSION(3, 22, 0)
+			GtkWidget *toplevel;
+
+			toplevel = gtk_widget_get_toplevel (button);
+			gtk_show_uri_on_window (gtk_widget_is_toplevel (toplevel) ? GTK_WINDOW (toplevel) : NULL,
+						uri, GDK_CURRENT_TIME, NULL);
+#else
 			gtk_show_uri (gtk_widget_get_screen (button),
 				      uri, GDK_CURRENT_TIME, NULL);
+#endif
 			g_free (uri);
 		}
 	}
@@ -311,24 +321,27 @@ void
 pgd_action_view_set_action (GtkWidget     *action_view,
 			    PopplerAction *action)
 {
-	GtkWidget  *alignment;
 	GtkWidget  *table;
 	gint        row = 0;
 
-	alignment = gtk_bin_get_child (GTK_BIN (action_view));
-	if (alignment) {
-		gtk_container_remove (GTK_CONTAINER (action_view), alignment);
+	table = gtk_bin_get_child (GTK_BIN (action_view));
+	if (table) {
+		gtk_container_remove (GTK_CONTAINER (action_view), table);
 	}
-	
-	alignment = gtk_alignment_new (0.5, 0.5, 1, 1);
-	gtk_alignment_set_padding (GTK_ALIGNMENT (alignment), 5, 5, 12, 5);
-	gtk_container_add (GTK_CONTAINER (action_view), alignment);
-	gtk_widget_show (alignment);
 
 	if (!action)
 		return;
 
 	table = gtk_grid_new ();
+	gtk_widget_set_margin_top (table, 5);
+	gtk_widget_set_margin_bottom (table, 5);
+#if GTK_CHECK_VERSION(3, 12, 0)
+	gtk_widget_set_margin_start (table, 12);
+	gtk_widget_set_margin_end (table, 5);
+#else
+	gtk_widget_set_margin_left (table, 12);
+	gtk_widget_set_margin_right (table, 5);
+#endif
 	gtk_grid_set_column_spacing (GTK_GRID (table), 6);
 	gtk_grid_set_row_spacing (GTK_GRID (table), 6);
 
@@ -394,7 +407,7 @@ pgd_action_view_set_action (GtkWidget     *action_view,
 							&row);
 			}
 
-			button = gtk_button_new_from_stock (GTK_STOCK_MEDIA_PLAY);
+			button = gtk_button_new_with_mnemonic ("_Play");
 			g_signal_connect (button, "clicked",
 					  G_CALLBACK (pgd_action_view_play_rendition),
 					  action->rendition.media);
@@ -411,7 +424,7 @@ pgd_action_view_set_action (GtkWidget     *action_view,
 
 		for (l = action->ocg_state.state_list; l; l = g_list_next (l)) {
 			PopplerActionLayer *action_layer = (PopplerActionLayer *)l->data;
-			gchar *text;
+			gchar *text = NULL;
 			gint   n_layers = g_list_length (action_layer->layers);
 
 			switch (action_layer->action) {
@@ -466,30 +479,23 @@ pgd_action_view_set_action (GtkWidget     *action_view,
 		g_assert_not_reached ();
 	}
 
-	gtk_container_add (GTK_CONTAINER (alignment), table);
+	gtk_container_add (GTK_CONTAINER (action_view), table);
 	gtk_widget_show (table);
 }
 
 gchar *
 pgd_format_date (time_t utime)
 {
-	time_t time = (time_t) utime;
-	char s[256];
-	const char *fmt_hack = "%c";
-	size_t len;
-#ifdef HAVE_LOCALTIME_R
-	struct tm t;
-	if (time == 0 || !localtime_r (&time, &t)) return NULL;
-	len = strftime (s, sizeof (s), fmt_hack, &t);
-#else
-	struct tm *t;
-	if (time == 0 || !(t = localtime (&time)) ) return NULL;
-	len = strftime (s, sizeof (s), fmt_hack, t);
-#endif
+	GDateTime *dt = NULL;
+	gchar *s = NULL;
 
-	if (len == 0 || s[0] == '\0') return NULL;
+	if (utime == 0) return NULL;
+	dt = g_date_time_new_from_unix_local (utime);
+	if (dt == NULL) return NULL;
+	s = g_date_time_format (dt, "%c");
+	g_date_time_unref (dt);
 
-	return g_locale_to_utf8 (s, -1, NULL, NULL, NULL);
+	return s;
 }
 
 GtkWidget *
@@ -536,8 +542,16 @@ pgd_movie_view_play_movie (GtkWidget    *button,
 	uri = g_file_get_uri (file);
 	g_object_unref (file);
 	if (uri) {
+#if GTK_CHECK_VERSION(3, 22, 0)
+		GtkWidget *toplevel;
+
+		toplevel = gtk_widget_get_toplevel (button);
+		gtk_show_uri_on_window (gtk_widget_is_toplevel (toplevel) ? GTK_WINDOW (toplevel) : NULL,
+		uri, GDK_CURRENT_TIME, NULL);
+#else
 		gtk_show_uri (gtk_widget_get_screen (button),
 			      uri, GDK_CURRENT_TIME, NULL);
+#endif
 		g_free (uri);
 	}
 }
@@ -546,40 +560,52 @@ void
 pgd_movie_view_set_movie (GtkWidget    *movie_view,
 			  PopplerMovie *movie)
 {
-	GtkWidget  *alignment;
 	GtkWidget  *table;
 	GtkWidget  *button;
+        GEnumValue *enum_value;
 	gint        row = 0;
 
-	alignment = gtk_bin_get_child (GTK_BIN (movie_view));
-	if (alignment) {
-		gtk_container_remove (GTK_CONTAINER (movie_view), alignment);
+	table = gtk_bin_get_child (GTK_BIN (movie_view));
+	if (table) {
+		gtk_container_remove (GTK_CONTAINER (movie_view), table);
 	}
-
-	alignment = gtk_alignment_new (0.5, 0.5, 1, 1);
-	gtk_alignment_set_padding (GTK_ALIGNMENT (alignment), 5, 5, 12, 5);
-	gtk_container_add (GTK_CONTAINER (movie_view), alignment);
-	gtk_widget_show (alignment);
 
 	if (!movie)
 		return;
 
 	table = gtk_grid_new ();
+	gtk_widget_set_margin_top (table, 5);
+	gtk_widget_set_margin_bottom (table, 5);
+#if GTK_CHECK_VERSION(3, 12, 0)
+	gtk_widget_set_margin_start (table, 12);
+	gtk_widget_set_margin_end (table, 5);
+#else
+	gtk_widget_set_margin_left (table, 12);
+	gtk_widget_set_margin_right (table, 5);
+#endif
 	gtk_grid_set_column_spacing (GTK_GRID (table), 6);
 	gtk_grid_set_row_spacing (GTK_GRID (table), 6);
 
 	pgd_table_add_property (GTK_GRID (table), "<b>Filename:</b>", poppler_movie_get_filename (movie), &row);
 	pgd_table_add_property (GTK_GRID (table), "<b>Need Poster:</b>", poppler_movie_need_poster (movie) ? "Yes" : "No", &row);
 	pgd_table_add_property (GTK_GRID (table), "<b>Show Controls:</b>", poppler_movie_show_controls (movie) ? "Yes" : "No", &row);
+        enum_value = g_enum_get_value ((GEnumClass *) g_type_class_ref (POPPLER_TYPE_MOVIE_PLAY_MODE), poppler_movie_get_play_mode (movie));
+        pgd_table_add_property (GTK_GRID (table), "<b>Play Mode:</b>", enum_value->value_name, &row);
+	pgd_table_add_property (GTK_GRID (table), "<b>Synchronous Play:</b>", poppler_movie_is_synchronous (movie) ? "Yes" : "No", &row);
+	pgd_table_add_property (GTK_GRID (table), "<b>Volume:</b>", g_strdup_printf("%g", poppler_movie_get_volume (movie)), &row);
+	pgd_table_add_property (GTK_GRID (table), "<b>Rate:</b>", g_strdup_printf("%g", poppler_movie_get_rate (movie)), &row);
+        pgd_table_add_property (GTK_GRID (table), "<b>Start:</b>", g_strdup_printf("%g s", poppler_movie_get_start (movie)/1e9), &row);
+        pgd_table_add_property (GTK_GRID (table), "<b>Duration:</b>", g_strdup_printf("%g s", poppler_movie_get_duration (movie)/1e9), &row);
+	pgd_table_add_property (GTK_GRID (table), "<b>Rotation Angle:</b>", g_strdup_printf("%u", poppler_movie_get_rotation_angle (movie)), &row);
 
-	button = gtk_button_new_from_stock (GTK_STOCK_MEDIA_PLAY);
+	button = gtk_button_new_with_mnemonic ("_Play");
 	g_signal_connect (button, "clicked",
 			  G_CALLBACK (pgd_movie_view_play_movie),
 			  movie);
 	pgd_table_add_property_with_custom_widget (GTK_GRID (table), NULL, button, &row);
 	gtk_widget_show (button);
 
-	gtk_container_add (GTK_CONTAINER (alignment), table);
+	gtk_container_add (GTK_CONTAINER (movie_view), table);
 	gtk_widget_show (table);
 }
 

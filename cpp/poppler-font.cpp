@@ -1,5 +1,8 @@
 /*
  * Copyright (C) 2009, Pino Toscano <pino@kde.org>
+ * Copyright (C) 2015, Tamas Szekeres <szekerest@gmail.com>
+ * Copyright (C) 2018, Adam Reichold <adam.reichold@t-online.de>
+ * Copyright (C) 2019, Oliver Sander <oliver.sander@tu-dresden.de>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,11 +19,16 @@
  * Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston, MA 02110-1301, USA.
  */
 
+/**
+ \file poppler-font.h
+ */
 #include "poppler-font.h"
 
 #include "poppler-document-private.h"
 
 #include "FontInfo.h"
+
+#include <algorithm>
 
 using namespace poppler;
 
@@ -37,13 +45,12 @@ public:
         : type((font_info::type_enum)fi->getType())
         , is_embedded(fi->getEmbedded())
         , is_subset(fi->getSubset())
-        , emb_ref(fi->getEmbRef())
     {
         if (fi->getName()) {
-            font_name = fi->getName()->getCString();
+            font_name = fi->getName()->c_str();
         }
         if (fi->getFile()) {
-            font_file = fi->getFile()->getCString();
+            font_file = fi->getFile()->c_str();
         }
     }
 
@@ -52,7 +59,6 @@ public:
     font_info::type_enum type : 5;
     bool is_embedded : 1;
     bool is_subset : 1;
-    Ref emb_ref;
 };
 
 
@@ -212,15 +218,13 @@ std::vector<font_info> font_iterator::next()
 
     ++d->current_page;
 
-    GooList *items = d->font_info_scanner.scan(1);
-    if (!items) {
-        return std::vector<font_info>();
+    const std::vector<FontInfo*> items = d->font_info_scanner.scan(1);
+    std::vector<font_info> fonts;
+    fonts.reserve(items.size());
+    for (FontInfo* entry : items) {
+        fonts.push_back(font_info(*new font_info_private(entry)));
+        delete entry;
     }
-    std::vector<font_info> fonts(items->getLength());
-    for (int i = 0; i < items->getLength(); ++i) {
-        fonts[i] = font_info(*new font_info_private((FontInfo *)items->get(i)));
-    }
-    deleteGooList(items, FontInfo);
     return fonts;
 }
 

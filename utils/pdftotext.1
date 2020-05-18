@@ -62,6 +62,11 @@ Keep the text in content stream order.  This is a hack which often
 "undoes" column formatting, etc.  Use of raw mode is no longer
 recommended.
 .TP
+.B \-nodiag
+Discard diagonal text (i.e., text that is not close to one of the
+0, 90, 180, or 270 degree axes). This is useful for skipping
+watermarks drawn on body text.
+.TP
 .B \-htmlmeta
 Generate a simple HTML file, including the meta information.  This
 simply wraps the text in <pre> and </pre> and prepends the meta
@@ -71,11 +76,15 @@ headers.
 Generate an XHTML file containing bounding box information for each
 word in the file.
 .TP
+.B \-bbox-layout
+Generate an XHTML file containing bounding box information for each
+block, line, and word in the file.
+.TP
 .BI \-enc " encoding-name"
 Sets the encoding to use for text output. This defaults to "UTF-8".
 .TP
 .B \-listenc
-Lits the available encodings
+Lists the available encodings
 .TP
 .BI \-eol " unix | dos | mac"
 Sets the end-of-line convention to use for text output.
@@ -134,4 +143,7 @@ The pdftotext software and documentation are copyright 1996-2011 Glyph
 .BR pdftocairo (1),
 .BR pdftohtml (1),
 .BR pdftoppm (1),
-.BR pdftops (1)
+.BR pdftops (1),
+.BR pdfseparate (1),
+.BR pdfsig (1),
+.BR pdfunite (1)

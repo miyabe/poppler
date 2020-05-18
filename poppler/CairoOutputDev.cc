@@ -16,17 +16,22 @@
 //
 // Copyright (C) 2005-2008 Jeff Muizelaar <jeff@infidigm.net>
 // Copyright (C) 2005, 2006 Kristian Høgsberg <krh@redhat.com>
-// Copyright (C) 2005, 2009, 2012 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2005, 2009, 2012, 2017-2019 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2005 Nickolay V. Shmyrev <nshmyrev@yandex.ru>
-// Copyright (C) 2006-2011 Carlos Garcia Campos <carlosgc@gnome.org>
+// Copyright (C) 2006-2011, 2013, 2014, 2017, 2018 Carlos Garcia Campos <carlosgc@gnome.org>
 // Copyright (C) 2008 Carl Worth <cworth@cworth.org>
-// Copyright (C) 2008-2012 Adrian Johnson <ajohnson@redneon.com>
+// Copyright (C) 2008-2018 Adrian Johnson <ajohnson@redneon.com>
 // Copyright (C) 2008 Michael Vrable <mvrable@cs.ucsd.edu>
 // Copyright (C) 2008, 2009 Chris Wilson <chris@chris-wilson.co.uk>
-// Copyright (C) 2008 Hib Eris <hib@hiberis.nl>
+// Copyright (C) 2008, 2012 Hib Eris <hib@hiberis.nl>
 // Copyright (C) 2009, 2010 David Benjamin <davidben@mit.edu>
-// Copyright (C) 2011, 2012 Thomas Freitag <Thomas.Freitag@alfa.de>
+// Copyright (C) 2011-2014 Thomas Freitag <Thomas.Freitag@alfa.de>
 // Copyright (C) 2012 Patrick Pfeifer <p2000@mailinator.com>
+// Copyright (C) 2012, 2015, 2016 Jason Crain <jason@aquaticape.us>
+// Copyright (C) 2015 Suzuki Toshiya <mpsuzuki@hiroshima-u.ac.jp>
+// Copyright (C) 2018 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by the LiMux project of the city of Munich
+// Copyright (C) 2018 Adam Reichold <adam.reichold@t-online.de>
+// Copyright (C) 2019 Marek Kasik <mkasik@redhat.com>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -35,17 +40,13 @@
 
 #include <config.h>
 
-#ifdef USE_GCC_PRAGMAS
-#pragma implementation
-#endif
-
-#include <string.h>
-#include <math.h>
-#include <assert.h>
+#include <cstdint>
+#include <cstring>
+#include <cmath>
+#include <cassert>
 #include <cairo.h>
 
 #include "goo/gfile.h"
-#include "goo/gtypes_p.h"
 #include "GlobalParams.h"
 #include "Error.h"
 #include "Object.h"
@@ -61,22 +62,22 @@
 #include "CairoOutputDev.h"
 #include "CairoFontEngine.h"
 #include "CairoRescaleBox.h"
-#include "UTF.h"
+#include "UnicodeMap.h"
+#include "JBIG2Stream.h"
 //------------------------------------------------------------------------
 
 // #define LOG_CAIRO
+
+// To limit memory usage and improve performance when printing, limit
+// cairo images to this size. 8192 is sufficient for an A2 sized
+// 300ppi image.
+#define MAX_PRINT_IMAGE_SIZE 8192
 
 #ifdef LOG_CAIRO
 #define LOG(x) (x)
 #else
 #define LOG(x)
 #endif
-
-static inline void printMatrix(cairo_matrix_t *matrix){
-	printf("%f %f, %f %f (%f %f)\n", matrix->xx, matrix->yx,
-			matrix->xy, matrix->yy,
-			matrix->x0, matrix->y0);
-}
 
 
 #define MIN(a,b) (((a) < (b)) ? (a) : (b))
@@ -87,12 +88,12 @@ static inline void printMatrix(cairo_matrix_t *matrix){
 // CairoImage
 //------------------------------------------------------------------------
 
-CairoImage::CairoImage (double x1, double y1, double x2, double y2) {
-  this->image = NULL;
-  this->x1 = x1;
-  this->y1 = y1;
-  this->x2 = x2;
-  this->y2 = y2;
+CairoImage::CairoImage (double x1A, double y1A, double x2A, double y2A) {
+  image = nullptr;
+  x1 = x1A;
+  y1 = y1A;
+  x2 = x2A;
+  y2 = y2A;
 }
 
 CairoImage::~CairoImage () {
@@ -100,10 +101,10 @@ CairoImage::~CairoImage () {
     cairo_surface_destroy (image);
 }
 
-void CairoImage::setImage (cairo_surface_t *image) {
-  if (this->image)
-    cairo_surface_destroy (this->image);
-  this->image = cairo_surface_reference (image);
+void CairoImage::setImage (cairo_surface_t *i) {
+  if (image)
+    cairo_surface_destroy (image);
+  image = cairo_surface_reference (i);
 }
 
 //------------------------------------------------------------------------
@@ -117,51 +118,59 @@ void CairoImage::setImage (cairo_surface_t *image) {
 // FT_Library instance; to avoid leaks, just use a single global instance
 // initialized the first time it is needed.
 FT_Library CairoOutputDev::ft_lib;
-GBool CairoOutputDev::ft_lib_initialized = gFalse;
+bool CairoOutputDev::ft_lib_initialized = false;
 
 CairoOutputDev::CairoOutputDev() {
-  doc = NULL;
+  doc = nullptr;
 
   if (!ft_lib_initialized) {
     FT_Init_FreeType(&ft_lib);
-    ft_lib_initialized = gTrue;
+    ft_lib_initialized = true;
   }
 
-  fontEngine = NULL;
-  fontEngine_owner = gFalse;
-  glyphs = NULL;
-  fill_pattern = NULL;
+  fontEngine = nullptr;
+  fontEngine_owner = false;
+  glyphs = nullptr;
+  fill_pattern = nullptr;
   fill_color.r = fill_color.g = fill_color.b = 0;
-  stroke_pattern = NULL;
+  stroke_pattern = nullptr;
   stroke_color.r = stroke_color.g = stroke_color.b = 0;
   stroke_opacity = 1.0;
   fill_opacity = 1.0;
-  textClipPath = NULL;
-  strokePathClip = NULL;
-  cairo = NULL;
-  currentFont = NULL;
-  prescaleImages = gTrue;
-  printing = gTrue;
-  use_show_text_glyphs = gFalse;
-  inType3Char = gFalse;
-  t3_glyph_has_bbox = gFalse;
+  textClipPath = nullptr;
+  strokePathClip = nullptr;
+  cairo = nullptr;
+  currentFont = nullptr;
+#if CAIRO_VERSION >= CAIRO_VERSION_ENCODE(1, 14, 0)
+  prescaleImages = false;
+#else
+  prescaleImages = true;
+#endif
+  printing = true;
+  use_show_text_glyphs = false;
+  inUncoloredPattern = false;
+  inType3Char = false;
+  t3_glyph_has_bbox = false;
+  text_matrix_valid = true;
+  antialias = CAIRO_ANTIALIAS_DEFAULT;
 
-  groupColorSpaceStack = NULL;
-  maskStack = NULL;
-  group = NULL;
-  mask = NULL;
-  shape = NULL;
-  cairo_shape = NULL;
+  groupColorSpaceStack = nullptr;
+  maskStack = nullptr;
+  group = nullptr;
+  mask = nullptr;
+  shape = nullptr;
+  cairo_shape = nullptr;
   knockoutCount = 0;
 
-  text = NULL;
-  actualText = NULL;
+  textPage = nullptr;
+  actualText = nullptr;
 
   // the SA parameter supposedly defaults to false, but Acrobat
   // apparently hardwires it to true
-  stroke_adjust = globalParams->getStrokeAdjust();
-  align_stroke_coords = gFalse;
-  adjusted_stroke_width = gFalse;
+  stroke_adjust = true;
+  align_stroke_coords = false;
+  adjusted_stroke_width = false;
+  xref = nullptr;
 }
 
 CairoOutputDev::~CairoOutputDev() {
@@ -179,47 +188,68 @@ CairoOutputDev::~CairoOutputDev() {
     cairo_pattern_destroy (mask);
   if (shape)
     cairo_pattern_destroy (shape);
-  if (text) 
-    text->decRefCnt();
+  if (textPage)
+    textPage->decRefCnt();
   if (actualText)
     delete actualText;  
 }
 
-void CairoOutputDev::setCairo(cairo_t *cairo)
+void CairoOutputDev::setCairo(cairo_t *c)
 {
-  if (this->cairo != NULL) {
-    cairo_status_t status = cairo_status (this->cairo);
+  if (cairo != nullptr) {
+    cairo_status_t status = cairo_status (cairo);
     if (status) {
       error(errInternal, -1, "cairo context error: {0:s}\n", cairo_status_to_string(status));
     }
-    cairo_destroy (this->cairo);
+    cairo_destroy (cairo);
     assert(!cairo_shape);
   }
-  if (cairo != NULL) {
-    this->cairo = cairo_reference (cairo);
+  if (c != nullptr) {
+    cairo = cairo_reference (c);
 	/* save the initial matrix so that we can use it for type3 fonts. */
 	//XXX: is this sufficient? could we miss changes to the matrix somehow?
 	cairo_get_matrix(cairo, &orig_matrix);
+	setContextAntialias(cairo, antialias);
   } else {
-    this->cairo = NULL;
-    this->cairo_shape = NULL;
+    cairo = nullptr;
+    cairo_shape = nullptr;
   }
 }
 
 void CairoOutputDev::setTextPage(TextPage *text)
 {
-  if (this->text) 
-    this->text->decRefCnt();
+  if (textPage)
+    textPage->decRefCnt();
   if (actualText)
     delete actualText;
   if (text) {
-    this->text = text;
-    this->text->incRefCnt();
+    textPage = text;
+    textPage->incRefCnt();
     actualText = new ActualText(text);
   } else {
-    this->text = NULL;
-    actualText = NULL;
+    textPage = nullptr;
+    actualText = nullptr;
   }
+}
+
+void CairoOutputDev::setAntialias(cairo_antialias_t a)
+{
+  antialias = a;
+  if (cairo)
+    setContextAntialias (cairo, antialias);
+  if (cairo_shape)
+    setContextAntialias (cairo_shape, antialias);
+}
+
+void CairoOutputDev::setContextAntialias(cairo_t *cr, cairo_antialias_t antialias)
+{
+  cairo_font_options_t *font_options;
+  cairo_set_antialias (cr, antialias);
+  font_options = cairo_font_options_create ();
+  cairo_get_font_options (cr, font_options);
+  cairo_font_options_set_antialias (font_options, antialias);
+  cairo_set_font_options (cr, font_options);
+  cairo_font_options_destroy (font_options);
 }
 
 void CairoOutputDev::startDoc(PDFDoc *docA,
@@ -232,26 +262,32 @@ void CairoOutputDev::startDoc(PDFDoc *docA,
       delete fontEngine;
     }
     fontEngine = new CairoFontEngine(ft_lib);
-    fontEngine_owner = gTrue;
+    fontEngine_owner = true;
   }
+  xref = doc->getXRef();
 }
 
-void CairoOutputDev::startPage(int pageNum, GfxState *state) {
+void CairoOutputDev::startPage(int pageNum, GfxState *state, XRef *xrefA) {
   /* set up some per page defaults */
   cairo_pattern_destroy(fill_pattern);
   cairo_pattern_destroy(stroke_pattern);
 
   fill_pattern = cairo_pattern_create_rgb(0., 0., 0.);
+  fill_color.r = fill_color.g = fill_color.b = 0;
   stroke_pattern = cairo_pattern_reference(fill_pattern);
+  stroke_color.r = stroke_color.g = stroke_color.b = 0;
 
-  if (text)
-    text->startPage(state);
+  if (textPage)
+    textPage->startPage(state);
+  if (xrefA != nullptr) {
+    xref = xrefA;
+  }
 }
 
 void CairoOutputDev::endPage() {
-  if (text) {
-    text->endPage();
-    text->coalesce(gTrue, 0, gFalse);
+  if (textPage) {
+    textPage->endPage();
+    textPage->coalesce(true, 0, false);
   }
 }
 
@@ -266,6 +302,9 @@ void CairoOutputDev::saveState(GfxState *state) {
   ms->mask_matrix = mask_matrix;
   ms->next = maskStack;
   maskStack = ms;
+
+  if (strokePathClip)
+    strokePathClip->ref_count++;
 }
 
 void CairoOutputDev::restoreState(GfxState *state) {
@@ -273,6 +312,8 @@ void CairoOutputDev::restoreState(GfxState *state) {
   cairo_restore (cairo);
   if (cairo_shape)
       cairo_restore (cairo_shape);
+
+  text_matrix_valid = true;
 
   /* These aren't restored by cairo_restore() since we keep them in
    * the output device. */
@@ -291,6 +332,14 @@ void CairoOutputDev::restoreState(GfxState *state) {
     maskStack = ms->next;
     delete ms;
   }
+
+  if (strokePathClip && --strokePathClip->ref_count == 0) {
+    delete strokePathClip->path;
+    if (strokePathClip->dashes)
+      gfree (strokePathClip->dashes);
+    gfree (strokePathClip);
+    strokePathClip = nullptr;
+  }
 }
 
 void CairoOutputDev::updateAll(GfxState *state) {
@@ -305,12 +354,12 @@ void CairoOutputDev::updateAll(GfxState *state) {
   updateFillOpacity(state);
   updateStrokeOpacity(state);
   updateBlendMode(state);
-  needFontUpdate = gTrue;
-  if (text)
-    text->updateFont(state);
+  needFontUpdate = true;
+  if (textPage)
+    textPage->updateFont(state);
 }
 
-void CairoOutputDev::setDefaultCTM(double *ctm) {
+void CairoOutputDev::setDefaultCTM(const double *ctm) {
   cairo_matrix_t matrix;
   matrix.xx = ctm[0];
   matrix.yx = ctm[1];
@@ -416,7 +465,7 @@ void CairoOutputDev::updateMiterLimit(GfxState *state) {
 
 void CairoOutputDev::updateLineWidth(GfxState *state) {
   LOG(printf ("line width: %f\n", state->getLineWidth()));
-  adjusted_stroke_width = gFalse;
+  adjusted_stroke_width = false;
   double width = state->getLineWidth();
   if (stroke_adjust && !printing) {
     double x, y;
@@ -429,7 +478,7 @@ void CairoOutputDev::updateLineWidth(GfxState *state) {
       x = y = 1.0;
       cairo_device_to_user_distance(cairo, &x, &y);
       width = MIN(fabs(x),fabs(y));
-      adjusted_stroke_width = gTrue;
+      adjusted_stroke_width = true;
     }
   } else if (width == 0.0) {
     /* Cairo does not support 0 line width == 1 device pixel. Find out
@@ -453,6 +502,9 @@ void CairoOutputDev::updateLineWidth(GfxState *state) {
 void CairoOutputDev::updateFillColor(GfxState *state) {
   GfxRGB color = fill_color;
 
+  if (inUncoloredPattern)
+    return;
+
   state->getFillRGB(&fill_color);
   if (cairo_pattern_get_type (fill_pattern) != CAIRO_PATTERN_TYPE_SOLID ||
       color.r != fill_color.r ||
@@ -472,6 +524,9 @@ void CairoOutputDev::updateFillColor(GfxState *state) {
 
 void CairoOutputDev::updateStrokeColor(GfxState *state) {
   GfxRGB color = stroke_color;
+
+  if (inUncoloredPattern)
+    return;
 
   state->getStrokeRGB(&stroke_color);
   if (cairo_pattern_get_type (fill_pattern) != CAIRO_PATTERN_TYPE_SOLID ||
@@ -493,6 +548,9 @@ void CairoOutputDev::updateStrokeColor(GfxState *state) {
 void CairoOutputDev::updateFillOpacity(GfxState *state) {
   double opacity = fill_opacity;
 
+  if (inUncoloredPattern)
+    return;
+
   fill_opacity = state->getFillOpacity();
   if (opacity != fill_opacity) {
     cairo_pattern_destroy(fill_pattern);
@@ -508,6 +566,9 @@ void CairoOutputDev::updateFillOpacity(GfxState *state) {
 void CairoOutputDev::updateStrokeOpacity(GfxState *state) {
   double opacity = stroke_opacity;
 
+  if (inUncoloredPattern)
+    return;
+
   stroke_opacity = state->getStrokeOpacity();
   if (opacity != stroke_opacity) {
     cairo_pattern_destroy(stroke_pattern);
@@ -521,6 +582,9 @@ void CairoOutputDev::updateStrokeOpacity(GfxState *state) {
 }
 
 void CairoOutputDev::updateFillColorStop(GfxState *state, double offset) {
+  if (inUncoloredPattern)
+    return;
+
   state->getFillRGB(&fill_color);
 
   cairo_pattern_add_color_stop_rgba(fill_pattern, offset,
@@ -591,15 +655,15 @@ void CairoOutputDev::updateFont(GfxState *state) {
   cairo_font_face_t *font_face;
   cairo_matrix_t matrix, invert_matrix;
 
-  LOG(printf ("updateFont() font=%s\n", state->getFont()->getName()->getCString()));
+  LOG(printf ("updateFont() font=%s\n", state->getFont()->getName()->c_str()));
 
-  needFontUpdate = gFalse;
+  needFontUpdate = false;
 
   //FIXME: use cairo font engine?
-  if (text)
-    text->updateFont(state);
+  if (textPage)
+    textPage->updateFont(state);
   
-  currentFont = fontEngine->getFont (state->getFont(), doc, printing);
+  currentFont = fontEngine->getFont (state->getFont(), doc, printing, xref);
 
   if (!currentFont)
     return;
@@ -611,7 +675,7 @@ void CairoOutputDev::updateFont(GfxState *state) {
     cairo_surface_has_show_text_glyphs (cairo_get_target (cairo));
  
   double fontSize = state->getFontSize();
-  double *m = state->getTextMat();
+  const double *m = state->getTextMat();
   /* NOTE: adjusting by a constant is hack. The correct solution
    * is probably to use user-fonts and compute the scale on a per
    * glyph basis instead of for the entire font */
@@ -633,11 +697,13 @@ void CairoOutputDev::updateFont(GfxState *state) {
   */
   invert_matrix = matrix;
   if (cairo_matrix_invert(&invert_matrix)) {
-    error(errSyntaxWarning, -1, "font matrix not invertible\n");
+    error(errSyntaxWarning, -1, "font matrix not invertible");
+    text_matrix_valid = false;
     return;
   }
 
   cairo_set_font_matrix (cairo, &matrix);
+  text_matrix_valid = true;
 }
 
 /* Tolerance in pixels for checking if strokes are horizontal or vertical
@@ -646,10 +712,10 @@ void CairoOutputDev::updateFont(GfxState *state) {
 
 /* Align stroke coordinate i if the point is the start or end of a
  * horizontal or vertical line */
-void CairoOutputDev::alignStrokeCoords(GfxSubpath *subpath, int i, double *x, double *y)
+void CairoOutputDev::alignStrokeCoords(const GfxSubpath *subpath, int i, double *x, double *y)
 {
   double x1, y1, x2, y2;
-  GBool align = gFalse;
+  bool align = false;
 
   x1 = subpath->getX(i);
   y1 = subpath->getY(i);
@@ -661,7 +727,7 @@ void CairoOutputDev::alignStrokeCoords(GfxSubpath *subpath, int i, double *x, do
     y2 = subpath->getY(i - 1);
     cairo_user_to_device (cairo, &x2, &y2);
     if (fabs(x2 - x1) < STROKE_COORD_TOLERANCE || fabs(y2 - y1) < STROKE_COORD_TOLERANCE)
-      align = gTrue;
+      align = true;
   }
 
   // Does the current coord and next coord form a horiz or vert line?
@@ -670,7 +736,7 @@ void CairoOutputDev::alignStrokeCoords(GfxSubpath *subpath, int i, double *x, do
     y2 = subpath->getY(i + 1);
     cairo_user_to_device (cairo, &x2, &y2);
     if (fabs(x2 - x1) < STROKE_COORD_TOLERANCE || fabs(y2 - y1) < STROKE_COORD_TOLERANCE)
-      align = gTrue;
+      align = true;
   }
 
   *x = subpath->getX(i);
@@ -686,13 +752,12 @@ void CairoOutputDev::alignStrokeCoords(GfxSubpath *subpath, int i, double *x, do
 
 #undef STROKE_COORD_TOLERANCE
 
-void CairoOutputDev::doPath(cairo_t *cairo, GfxState *state, GfxPath *path) {
-  GfxSubpath *subpath;
+void CairoOutputDev::doPath(cairo_t *c, GfxState *state, const GfxPath *path) {
   int i, j;
   double x, y;
-  cairo_new_path (cairo);
+  cairo_new_path (c);
   for (i = 0; i < path->getNumSubpaths(); ++i) {
-    subpath = path->getSubpath(i);
+    const GfxSubpath *subpath = path->getSubpath(i);
     if (subpath->getNumPoints() > 0) {
       if (align_stroke_coords) {
         alignStrokeCoords(subpath, 0, &x, &y);
@@ -700,7 +765,7 @@ void CairoOutputDev::doPath(cairo_t *cairo, GfxState *state, GfxPath *path) {
         x = subpath->getX(0);
         y = subpath->getY(0);
       }
-      cairo_move_to (cairo, x, y);
+      cairo_move_to (c, x, y);
       j = 1;
       while (j < subpath->getNumPoints()) {
 	if (subpath->getCurve(j)) {
@@ -710,7 +775,7 @@ void CairoOutputDev::doPath(cairo_t *cairo, GfxState *state, GfxPath *path) {
             x = subpath->getX(j+2);
             y = subpath->getY(j+2);
           }
-	  cairo_curve_to( cairo,
+	  cairo_curve_to( c,
 			  subpath->getX(j), subpath->getY(j),
 			  subpath->getX(j+1), subpath->getY(j+1),
 			  x, y);
@@ -723,13 +788,13 @@ void CairoOutputDev::doPath(cairo_t *cairo, GfxState *state, GfxPath *path) {
             x = subpath->getX(j);
             y = subpath->getY(j);
           }
-          cairo_line_to (cairo, x, y);
+          cairo_line_to (c, x, y);
 	  ++j;
 	}
       }
       if (subpath->isClosed()) {
 	LOG (printf ("close\n"));
-	cairo_close_path (cairo);
+	cairo_close_path (c);
       }
     }
   }
@@ -744,12 +809,19 @@ void CairoOutputDev::stroke(GfxState *state) {
   }
 
   if (adjusted_stroke_width)
-    align_stroke_coords = gTrue;
+    align_stroke_coords = true;
   doPath (cairo, state, state->getPath());
-  align_stroke_coords = gFalse;
+  align_stroke_coords = false;
   cairo_set_source (cairo, stroke_pattern);
   LOG(printf ("stroke\n"));
-  cairo_stroke (cairo);
+  if (strokePathClip) {
+    cairo_push_group (cairo);
+    cairo_stroke (cairo);
+    cairo_pop_group_to_source (cairo);
+    fillToStrokePathClip (state);
+  } else {
+    cairo_stroke (cairo);
+  }
   if (cairo_shape) {
     doPath (cairo_shape, state, state->getPath());
     cairo_stroke (cairo_shape);
@@ -772,6 +844,11 @@ void CairoOutputDev::fill(GfxState *state) {
   if (mask) {
     cairo_save (cairo);
     cairo_clip (cairo);
+    if (strokePathClip) {
+      cairo_push_group (cairo);
+      fillToStrokePathClip (state);
+      cairo_pop_group_to_source (cairo);
+    }
     cairo_set_matrix (cairo, &mask_matrix);
     cairo_mask (cairo, mask);
     cairo_restore (cairo);
@@ -792,8 +869,16 @@ void CairoOutputDev::eoFill(GfxState *state) {
   cairo_set_fill_rule (cairo, CAIRO_FILL_RULE_EVEN_ODD);
   cairo_set_source (cairo, fill_pattern);
   LOG(printf ("fill-eo\n"));
-  cairo_fill (cairo);
 
+  if (mask) {
+    cairo_save (cairo);
+    cairo_clip (cairo);
+    cairo_set_matrix (cairo, &mask_matrix);
+    cairo_mask (cairo, mask);
+    cairo_restore (cairo);
+  } else {
+    cairo_fill (cairo);
+  }
   if (cairo_shape) {
     cairo_set_fill_rule (cairo_shape, CAIRO_FILL_RULE_EVEN_ODD);
     doPath (cairo_shape, state, state->getPath());
@@ -802,9 +887,9 @@ void CairoOutputDev::eoFill(GfxState *state) {
 
 }
 
-GBool CairoOutputDev::tilingPatternFill(GfxState *state, Gfx *gfx1, Catalog *cat, Object *str,
-					double *pmat, int paintType, int /*tilingType*/, Dict *resDict,
-					double *mat, double *bbox,
+bool CairoOutputDev::tilingPatternFill(GfxState *state, Gfx *gfxA, Catalog *cat, Object *str,
+					const double *pmat, int paintType, int /*tilingType*/, Dict *resDict,
+					const double *mat, const double *bbox,
 					int x0, int y0, int x1, int y1,
 					double xStep, double yStep)
 {
@@ -813,55 +898,84 @@ GBool CairoOutputDev::tilingPatternFill(GfxState *state, Gfx *gfx1, Catalog *cat
   cairo_pattern_t *pattern;
   cairo_surface_t *surface;
   cairo_matrix_t matrix;
+  cairo_matrix_t pattern_matrix;
   cairo_t *old_cairo;
   double xMin, yMin, xMax, yMax;
   double width, height;
+  double scaleX, scaleY;
   int surface_width, surface_height;
   StrokePathClip *strokePathTmp;
+  bool adjusted_stroke_width_tmp;
+  cairo_pattern_t *maskTmp;
 
   width = bbox[2] - bbox[0];
   height = bbox[3] - bbox[1];
 
   if (xStep != width || yStep != height)
-    return gFalse;
+    return false;
   /* TODO: implement the other cases here too */
 
-  surface_width = (int) ceil (width);
-  surface_height = (int) ceil (height);
+  // Find the width and height of the transformed pattern
+  cairo_get_matrix (cairo, &matrix);
+  cairo_matrix_init (&pattern_matrix, mat[0], mat[1], mat[2], mat[3], mat[4], mat[5]);
+  cairo_matrix_multiply (&matrix, &matrix, &pattern_matrix);
+
+  double widthX = width, widthY = 0;
+  cairo_matrix_transform_distance (&matrix, &widthX, &widthY);
+  surface_width = ceil (sqrt (widthX * widthX + widthY * widthY));
+
+  double heightX = 0, heightY = height;
+  cairo_matrix_transform_distance (&matrix, &heightX, &heightY);
+  surface_height = ceil (sqrt (heightX * heightX + heightY * heightY));
+  scaleX = surface_width / width;
+  scaleY = surface_height / height;
 
   surface = cairo_surface_create_similar (cairo_get_target (cairo),
 					  CAIRO_CONTENT_COLOR_ALPHA,
 					  surface_width, surface_height);
   if (cairo_surface_status (surface))
-    return gFalse;
+    return false;
 
   old_cairo = cairo;
   cairo = cairo_create (surface);
   cairo_surface_destroy (surface);
+  setContextAntialias(cairo, antialias);
 
   box.x1 = bbox[0]; box.y1 = bbox[1];
   box.x2 = bbox[2]; box.y2 = bbox[3];
+  cairo_scale (cairo, scaleX, scaleY);
+  cairo_translate (cairo, -box.x1, -box.y1);
+
   strokePathTmp = strokePathClip;
-  strokePathClip = NULL;
-  gfx = new Gfx(doc, this, resDict, &box, NULL);
+  strokePathClip = nullptr;
+  adjusted_stroke_width_tmp = adjusted_stroke_width;
+  maskTmp = mask;
+  mask = nullptr;
+  gfx = new Gfx(doc, this, resDict, &box, nullptr, nullptr, nullptr, gfxA);
+  if (paintType == 2)
+    inUncoloredPattern = true;
   gfx->display(str);
+  if (paintType == 2)
+    inUncoloredPattern = false;
   delete gfx;
   strokePathClip = strokePathTmp;
+  adjusted_stroke_width = adjusted_stroke_width_tmp;
+  mask = maskTmp;
 
   pattern = cairo_pattern_create_for_surface (cairo_get_target (cairo));
   cairo_destroy (cairo);
   cairo = old_cairo;
   if (cairo_pattern_status (pattern))
-    return gFalse;
+    return false;
 
   state->getUserClipBBox(&xMin, &yMin, &xMax, &yMax);
   cairo_rectangle (cairo, xMin, yMin, xMax - xMin, yMax - yMin);
 
-  cairo_matrix_init_scale (&matrix, surface_width / width, surface_height / height);
+  cairo_matrix_init_scale (&matrix, scaleX, scaleY);
+  cairo_matrix_translate (&matrix, -box.x1, -box.y1);
   cairo_pattern_set_matrix (pattern, &matrix);
 
-  cairo_matrix_init (&matrix, mat[0], mat[1], mat[2], mat[3], mat[4], mat[5]);
-  cairo_transform (cairo, &matrix);
+  cairo_transform (cairo, &pattern_matrix);
   cairo_set_source (cairo, pattern);
   cairo_pattern_set_extend (pattern, CAIRO_EXTEND_REPEAT);
   if (strokePathClip) {
@@ -872,10 +986,110 @@ GBool CairoOutputDev::tilingPatternFill(GfxState *state, Gfx *gfx1, Catalog *cat
 
   cairo_pattern_destroy (pattern);
 
-  return gTrue;
+  return true;
 }
 
-GBool CairoOutputDev::axialShadedFill(GfxState *state, GfxAxialShading *shading, double tMin, double tMax) {
+#if CAIRO_VERSION >= CAIRO_VERSION_ENCODE(1, 12, 0)
+bool CairoOutputDev::functionShadedFill(GfxState *state, GfxFunctionShading *shading)
+{
+  // Function shaded fills are subdivided to rectangles that are the
+  // following size in device space.  Note when printing this size is
+  // in points.
+  const int subdivide_pixels = 10;
+
+  double x_begin, x_end, x1, x2;
+  double y_begin, y_end, y1, y2;
+  double x_step;
+  double y_step;
+  GfxColor color;
+  GfxRGB rgb;
+  cairo_matrix_t mat;
+
+  const double *matrix = shading->getMatrix();
+  mat.xx = matrix[0];
+  mat.yx = matrix[1];
+  mat.xy = matrix[2];
+  mat.yy = matrix[3];
+  mat.x0 = matrix[4];
+  mat.y0 = matrix[5];
+  if (cairo_matrix_invert(&mat)) {
+    error(errSyntaxWarning, -1, "matrix not invertible\n");
+    return false;
+    }
+
+  // get cell size in pattern space
+  x_step = y_step = subdivide_pixels;
+  cairo_matrix_transform_distance (&mat, &x_step, &y_step);
+
+  cairo_pattern_destroy(fill_pattern);
+  fill_pattern = cairo_pattern_create_mesh ();
+  cairo_pattern_set_matrix(fill_pattern, &mat);
+  shading->getDomain(&x_begin, &y_begin, &x_end, &y_end);
+
+  for (x1 = x_begin; x1 < x_end; x1 += x_step) {
+    x2 = x1 + x_step;
+    if (x2 > x_end)
+      x2 = x_end;
+
+    for (y1 = y_begin; y1 < y_end; y1 += y_step) {
+      y2 = y1 + y_step;
+      if (y2 > y_end)
+	y2 = y_end;
+
+      cairo_mesh_pattern_begin_patch (fill_pattern);
+      cairo_mesh_pattern_move_to (fill_pattern, x1, y1);
+      cairo_mesh_pattern_line_to (fill_pattern, x2, y1);
+      cairo_mesh_pattern_line_to (fill_pattern, x2, y2);
+      cairo_mesh_pattern_line_to (fill_pattern, x1, y2);
+
+      shading->getColor(x1, y1, &color);
+      shading->getColorSpace()->getRGB(&color, &rgb);
+      cairo_mesh_pattern_set_corner_color_rgb (fill_pattern, 0,
+					       colToDbl(rgb.r),
+					       colToDbl(rgb.g),
+					       colToDbl(rgb.b));
+
+      shading->getColor(x2, y1, &color);
+      shading->getColorSpace()->getRGB(&color, &rgb);
+      cairo_mesh_pattern_set_corner_color_rgb (fill_pattern, 1,
+					       colToDbl(rgb.r),
+					       colToDbl(rgb.g),
+					       colToDbl(rgb.b));
+
+      shading->getColor(x2, y2, &color);
+      shading->getColorSpace()->getRGB(&color, &rgb);
+      cairo_mesh_pattern_set_corner_color_rgb (fill_pattern, 2,
+					       colToDbl(rgb.r),
+					       colToDbl(rgb.g),
+					       colToDbl(rgb.b));
+
+      shading->getColor(x1, y2, &color);
+      shading->getColorSpace()->getRGB(&color, &rgb);
+      cairo_mesh_pattern_set_corner_color_rgb (fill_pattern, 3,
+					       colToDbl(rgb.r),
+					       colToDbl(rgb.g),
+					       colToDbl(rgb.b));
+
+      cairo_mesh_pattern_end_patch (fill_pattern);
+    }
+  }
+
+  double xMin, yMin, xMax, yMax;
+  // get the clip region bbox
+  state->getUserClipBBox(&xMin, &yMin, &xMax, &yMax);
+  state->moveTo(xMin, yMin);
+  state->lineTo(xMin, yMax);
+  state->lineTo(xMax, yMax);
+  state->lineTo(xMax, yMin);
+  state->closePath();
+  fill(state);
+  state->clearPath();
+
+  return true;
+}
+#endif /* CAIRO_VERSION >= CAIRO_VERSION_ENCODE(1, 12, 0) */
+
+bool CairoOutputDev::axialShadedFill(GfxState *state, GfxAxialShading *shading, double tMin, double tMax) {
   double x0, y0, x1, y1;
   double dx, dy;
 
@@ -895,29 +1109,43 @@ GBool CairoOutputDev::axialShadedFill(GfxState *state, GfxAxialShading *shading,
 
   // TODO: use the actual stops in the shading in the case
   // of linear interpolation (Type 2 Exponential functions with N=1)
-  return gFalse;
+  return false;
 }
 
-GBool CairoOutputDev::axialShadedSupportExtend(GfxState *state, GfxAxialShading *shading)
+bool CairoOutputDev::axialShadedSupportExtend(GfxState *state, GfxAxialShading *shading)
 {
   return (shading->getExtend0() == shading->getExtend1());
 }
 
-GBool CairoOutputDev::radialShadedFill(GfxState *state, GfxRadialShading *shading, double sMin, double sMax) {
+bool CairoOutputDev::radialShadedFill(GfxState *state, GfxRadialShading *shading, double sMin, double sMax) {
   double x0, y0, r0, x1, y1, r1;
   double dx, dy, dr;
+  cairo_matrix_t matrix;
+  double scale;
 
   shading->getCoords(&x0, &y0, &r0, &x1, &y1, &r1);
   dx = x1 - x0;
   dy = y1 - y0;
   dr = r1 - r0;
+
+  // Cairo/pixman do not work well with a very large or small scaled
+  // matrix.  See cairo bug #81657.
+  //
+  // As a workaround, scale the pattern by the average of the vertical
+  // and horizontal scaling of the current transformation matrix.
+  cairo_get_matrix(cairo, &matrix);
+  scale = (sqrt(matrix.xx * matrix.xx + matrix.yx * matrix.yx)
+	   + sqrt(matrix.xy * matrix.xy + matrix.yy * matrix.yy)) / 2;
+  cairo_matrix_init_scale(&matrix, scale, scale);
+
   cairo_pattern_destroy(fill_pattern);
-  fill_pattern = cairo_pattern_create_radial (x0 + sMin * dx,
-					      y0 + sMin * dy,
-					      r0 + sMin * dr,
-					      x0 + sMax * dx,
-					      y0 + sMax * dy,
-					      r0 + sMax * dr);
+  fill_pattern = cairo_pattern_create_radial ((x0 + sMin * dx) * scale,
+					      (y0 + sMin * dy) * scale,
+					      (r0 + sMin * dr) * scale,
+					      (x0 + sMax * dx) * scale,
+					      (y0 + sMax * dy) * scale,
+					      (r0 + sMax * dr) * scale);
+  cairo_pattern_set_matrix(fill_pattern, &matrix);
   if (shading->getExtend0() && shading->getExtend1())
     cairo_pattern_set_extend (fill_pattern, CAIRO_EXTEND_PAD);
   else
@@ -925,16 +1153,16 @@ GBool CairoOutputDev::radialShadedFill(GfxState *state, GfxRadialShading *shadin
 
   LOG (printf ("radial-sh\n"));
 
-  return gFalse;
+  return false;
 }
 
-GBool CairoOutputDev::radialShadedSupportExtend(GfxState *state, GfxRadialShading *shading)
+bool CairoOutputDev::radialShadedSupportExtend(GfxState *state, GfxRadialShading *shading)
 {
   return (shading->getExtend0() == shading->getExtend1());
 }
 
 #if CAIRO_VERSION >= CAIRO_VERSION_ENCODE(1, 12, 0)
-GBool CairoOutputDev::gouraudTriangleShadedFill(GfxState *state, GfxGouraudTriangleShading *shading)
+bool CairoOutputDev::gouraudTriangleShadedFill(GfxState *state, GfxGouraudTriangleShading *shading)
 {
   double x0, y0, x1, y1, x2, y2;
   GfxColor color[3];
@@ -945,10 +1173,21 @@ GBool CairoOutputDev::gouraudTriangleShadedFill(GfxState *state, GfxGouraudTrian
   fill_pattern = cairo_pattern_create_mesh ();
 
   for (i = 0; i < shading->getNTriangles(); i++) {
-    shading->getTriangle(i,
-			 &x0, &y0, &color[0],
-			 &x1, &y1, &color[1],
-			 &x2, &y2, &color[2]);
+    if (shading->isParameterized()) {
+      double color0, color1, color2;
+      shading->getTriangle(i, &x0, &y0, &color0,
+                              &x1, &y1, &color1,
+                              &x2, &y2, &color2);
+      shading->getParameterizedColor(color0, &color[0]);
+      shading->getParameterizedColor(color1, &color[1]);
+      shading->getParameterizedColor(color2, &color[2]);
+    } else {
+      shading->getTriangle(i,
+                           &x0, &y0, &color[0],
+                           &x1, &y1, &color[1],
+                           &x2, &y2, &color[2]);
+
+    }
 
     cairo_mesh_pattern_begin_patch (fill_pattern);
 
@@ -978,10 +1217,10 @@ GBool CairoOutputDev::gouraudTriangleShadedFill(GfxState *state, GfxGouraudTrian
   fill(state);
   state->clearPath();
 
-  return gTrue;
+  return true;
 }
 
-GBool CairoOutputDev::patchMeshShadedFill(GfxState *state, GfxPatchMeshShading *shading)
+bool CairoOutputDev::patchMeshShadedFill(GfxState *state, GfxPatchMeshShading *shading)
 {
   int i, j, k;
 
@@ -989,7 +1228,7 @@ GBool CairoOutputDev::patchMeshShadedFill(GfxState *state, GfxPatchMeshShading *
   fill_pattern = cairo_pattern_create_mesh ();
 
   for (i = 0; i < shading->getNPatches(); i++) {
-    GfxPatch *patch = shading->getPatch(i);
+    const GfxPatch *patch = shading->getPatch(i);
     GfxColor color;
     GfxRGB rgb;
 
@@ -1068,7 +1307,7 @@ GBool CairoOutputDev::patchMeshShadedFill(GfxState *state, GfxPatchMeshShading *
   fill(state);
   state->clearPath();
 
-  return gTrue;
+  return true;
 }
 #endif /* CAIRO_VERSION >= CAIRO_VERSION_ENCODE(1, 12, 0) */
 
@@ -1108,11 +1347,12 @@ void CairoOutputDev::clipToStrokePath(GfxState *state) {
     strokePathClip->dashes = (double*) gmallocn (sizeof(double), strokePathClip->dash_count);
     cairo_get_dash (cairo, strokePathClip->dashes, &strokePathClip->dash_offset);
   } else {
-    strokePathClip->dashes = NULL;
+    strokePathClip->dashes = nullptr;
   }
   strokePathClip->cap = cairo_get_line_cap (cairo);
   strokePathClip->join = cairo_get_line_join (cairo);
   strokePathClip->miter = cairo_get_miter_limit (cairo);
+  strokePathClip->ref_count = 1;
 }
 
 void CairoOutputDev::fillToStrokePathClip(GfxState *state) {
@@ -1120,7 +1360,6 @@ void CairoOutputDev::fillToStrokePathClip(GfxState *state) {
 
   cairo_set_matrix (cairo, &strokePathClip->ctm);
   cairo_set_line_width (cairo, strokePathClip->line_width);
-  strokePathClip->dash_count = cairo_get_dash_count (cairo);
   cairo_set_dash (cairo, strokePathClip->dashes, strokePathClip->dash_count, strokePathClip->dash_offset);
   cairo_set_line_cap (cairo, strokePathClip->cap);
   cairo_set_line_join (cairo, strokePathClip->join);
@@ -1129,15 +1368,9 @@ void CairoOutputDev::fillToStrokePathClip(GfxState *state) {
   cairo_stroke (cairo);
 
   cairo_restore (cairo);
-
-  delete strokePathClip->path;
-  if (strokePathClip->dashes)
-    gfree (strokePathClip->dashes);
-  gfree (strokePathClip);
-  strokePathClip = NULL;
 }
 
-void CairoOutputDev::beginString(GfxState *state, GooString *s)
+void CairoOutputDev::beginString(GfxState *state, const GooString *s)
 {
   int len = s->getLength();
 
@@ -1161,7 +1394,7 @@ void CairoOutputDev::beginString(GfxState *state, GooString *s)
 void CairoOutputDev::drawChar(GfxState *state, double x, double y,
 			      double dx, double dy,
 			      double originX, double originY,
-			      CharCode code, int nBytes, Unicode *u, int uLen)
+			      CharCode code, int nBytes, const Unicode *u, int uLen)
 {
   if (currentFont) {
     glyphs[glyphCount].index = currentFont->getGlyph (code, u, uLen);
@@ -1169,6 +1402,8 @@ void CairoOutputDev::drawChar(GfxState *state, double x, double y,
     glyphs[glyphCount].y = y - originY;
     glyphCount++;
     if (use_show_text_glyphs) {
+      GooString enc("UTF-8");
+      UnicodeMap *utf8Map = globalParams->getUnicodeMap(&enc);
       if (utf8Max - utf8Count < uLen*6) {
         // utf8 encoded characters can be up to 6 bytes
 	if (utf8Max > uLen*6)
@@ -1179,7 +1414,7 @@ void CairoOutputDev::drawChar(GfxState *state, double x, double y,
       }
       clusters[clusterCount].num_bytes = 0;
       for (int i = 0; i < uLen; i++) {
-	int size = mapUTF8 (u[i], utf8 + utf8Count, utf8Max - utf8Count);
+	int size = utf8Map->mapUnicode(u[i], utf8 + utf8Count, utf8Max - utf8Count);
 	utf8Count += size;
 	clusters[clusterCount].num_bytes += size;
       }
@@ -1188,7 +1423,7 @@ void CairoOutputDev::drawChar(GfxState *state, double x, double y,
     }
   }
 
-  if (!text)
+  if (!textPage)
     return;
   actualText->addChar (state, x, y, dx, dy, code, nBytes, u, uLen);
 }
@@ -1209,10 +1444,8 @@ void CairoOutputDev::endString(GfxState *state)
   // ignore empty strings and invisible text -- this is used by
   // Acrobat Capture
   render = state->getRender();
-  if (render == 3 || glyphCount == 0) {
-    gfree(glyphs);
-    glyphs = NULL;
-    return;
+  if (render == 3 || glyphCount == 0 || !text_matrix_valid) {
+    goto finish;
   }
 
   if (!(render & 1)) {
@@ -1264,26 +1497,26 @@ void CairoOutputDev::endString(GfxState *state)
     }
   }
 
+finish:
   gfree (glyphs);
-  glyphs = NULL;
+  glyphs = nullptr;
   if (use_show_text_glyphs) {
     gfree (clusters);
-    clusters = NULL;
+    clusters = nullptr;
     gfree (utf8);
-    utf8 = NULL;
+    utf8 = nullptr;
   }
 }
 
 
-GBool CairoOutputDev::beginType3Char(GfxState *state, double x, double y,
+bool CairoOutputDev::beginType3Char(GfxState *state, double x, double y,
 				      double dx, double dy,
-				      CharCode code, Unicode *u, int uLen) {
+				      CharCode code, const Unicode *u, int uLen) {
 
   cairo_save (cairo);
-  double *ctm;
   cairo_matrix_t matrix;
 
-  ctm = state->getCTM();
+  const double *ctm = state->getCTM();
   matrix.xx = ctm[0];
   matrix.yx = ctm[1];
   matrix.xy = ctm[2];
@@ -1302,7 +1535,7 @@ GBool CairoOutputDev::beginType3Char(GfxState *state, double x, double y,
   cairo_pattern_destroy(stroke_pattern);
   cairo_pattern_reference(fill_pattern);
   stroke_pattern = fill_pattern;
-  return gFalse;
+  return false;
 }
 
 void CairoOutputDev::endType3Char(GfxState *state) {
@@ -1325,7 +1558,7 @@ void CairoOutputDev::type3D1(GfxState *state, double wx, double wy,
   t3_glyph_bbox[1] = lly;
   t3_glyph_bbox[2] = urx;
   t3_glyph_bbox[3] = ury;
-  t3_glyph_has_bbox = gTrue;
+  t3_glyph_has_bbox = true;
 }
 
 void CairoOutputDev::beginTextObject(GfxState *state) {
@@ -1341,19 +1574,19 @@ void CairoOutputDev::endTextObject(GfxState *state) {
       cairo_clip (cairo_shape);
     }
     cairo_path_destroy (textClipPath);
-    textClipPath = NULL;
+    textClipPath = nullptr;
   }
 }
 
-void CairoOutputDev::beginActualText(GfxState *state, GooString *text)
+void CairoOutputDev::beginActualText(GfxState *state, const GooString *text)
 {
-  if (this->text)
+  if (textPage)
     actualText->begin(state, text);
 }
 
 void CairoOutputDev::endActualText(GfxState *state)
 {
-  if (text)
+  if (textPage)
     actualText->end(state);
 }
 
@@ -1372,37 +1605,23 @@ static inline int splashFloor(SplashCoord x) {
 static
 cairo_surface_t *cairo_surface_create_similar_clip (cairo_t *cairo, cairo_content_t content)
 {
-  double x1, y1, x2, y2;
-  int width, height;
-  cairo_clip_extents (cairo, &x1, &y1, &x2, &y2);
-  cairo_matrix_t matrix;
-  cairo_get_matrix (cairo, &matrix);
-  //cairo_matrix_transform_point(&matrix, &x1, &y1);
-  //cairo_matrix_transform_point(&matrix, &x2, &y2);*/
-  cairo_user_to_device(cairo, &x1, &y1);
-  cairo_user_to_device(cairo, &x2, &y2);
-  width = splashCeil(x2) - splashFloor(x1);
-  //XXX: negative matrix
-  ////height = splashCeil(y2) - splashFloor(y1);
-  height = splashFloor(y1) - splashCeil(y2);
-  cairo_surface_t *target = cairo_get_target (cairo);
-  cairo_surface_t *result;
+  cairo_pattern_t *pattern;
+  cairo_surface_t *surface = nullptr;
 
-  result = cairo_surface_create_similar (target, content, width, height);
-  double x_offset, y_offset;
-    cairo_surface_get_device_offset(target, &x_offset, &y_offset);
-    cairo_surface_set_device_offset(result, x_offset, y_offset);
-
- 
-  return result;
+  cairo_push_group_with_content (cairo, content);
+  pattern = cairo_pop_group (cairo);
+  cairo_pattern_get_surface (pattern, &surface);
+  cairo_surface_reference (surface);
+  cairo_pattern_destroy (pattern);
+  return surface;
 }
 
 
 
-void CairoOutputDev::beginTransparencyGroup(GfxState * /*state*/, double * /*bbox*/,
+void CairoOutputDev::beginTransparencyGroup(GfxState * /*state*/, const double * /*bbox*/,
                                       GfxColorSpace * blendingColorSpace,
-                                      GBool /*isolated*/, GBool knockout,
-				      GBool forSoftMask) {
+                                      bool /*isolated*/, bool knockout,
+				      bool forSoftMask) {
   /* push color space */
   ColorSpaceStack* css = new ColorSpaceStack;
   css->cs = blendingColorSpace;
@@ -1420,22 +1639,20 @@ void CairoOutputDev::beginTransparencyGroup(GfxState * /*state*/, double * /*bbo
       cairo_surface_t *cairo_shape_surface = cairo_surface_create_similar_clip (cairo, CAIRO_CONTENT_ALPHA);
       cairo_shape = cairo_create (cairo_shape_surface);
       cairo_surface_destroy (cairo_shape_surface);
+      setContextAntialias(cairo_shape, antialias);
 
       /* the color doesn't matter as long as it is opaque */
       cairo_set_source_rgb (cairo_shape, 0, 0, 0);
       cairo_matrix_t matrix;
       cairo_get_matrix (cairo, &matrix);
-      //printMatrix(&matrix);
       cairo_set_matrix (cairo_shape, &matrix);
-    } else {
-      cairo_reference (cairo_shape);
     }
   }
   if (groupColorSpaceStack->next && groupColorSpaceStack->next->knockout) {
     /* we need to track the shape */
     cairo_push_group (cairo_shape);
   }
-  if (0 && forSoftMask)
+  if (false && forSoftMask)
     cairo_push_group_with_content (cairo, CAIRO_CONTENT_ALPHA);
   else
     cairo_push_group (cairo);
@@ -1463,38 +1680,27 @@ void CairoOutputDev::endTransparencyGroup(GfxState * /*state*/) {
   }
 }
 
-void CairoOutputDev::paintTransparencyGroup(GfxState * /*state*/, double * /*bbox*/) {
+void CairoOutputDev::paintTransparencyGroup(GfxState * /*state*/, const double * /*bbox*/) {
   LOG(printf ("paint transparency group\n"));
 
   cairo_save (cairo);
   cairo_set_matrix (cairo, &groupColorSpaceStack->group_matrix);
+
+  if (shape) {
+    /* OPERATOR_SOURCE w/ a mask is defined as (src IN mask) ADD (dest OUT mask)
+     * however our source has already been clipped to mask so we only need to
+     * do ADD and OUT */
+
+    /* clear the shape mask */
+    cairo_set_source (cairo, shape);
+    cairo_set_operator (cairo, CAIRO_OPERATOR_DEST_OUT);
+    cairo_paint (cairo);
+    cairo_set_operator (cairo, CAIRO_OPERATOR_ADD);
+  }
   cairo_set_source (cairo, group);
 
   if (!mask) {
-    //XXX: deal with mask && shape case
-    if (shape) {
-      cairo_save (cairo);
-
-      /* OPERATOR_SOURCE w/ a mask is defined as (src IN mask) ADD (dest OUT mask)
-       * however our source has already been clipped to mask so we only need to
-       * do ADD and OUT */
-
-      /* clear the shape mask */
-      cairo_set_source (cairo, shape);
-      cairo_set_operator (cairo, CAIRO_OPERATOR_DEST_OUT);
-      cairo_paint (cairo);
-
-      cairo_set_operator (cairo, CAIRO_OPERATOR_ADD);
-      cairo_set_source (cairo, group);
-      cairo_paint (cairo);
-
-      cairo_restore (cairo);
-
-      cairo_pattern_destroy (shape);
-      shape = NULL;
-    } else {
-      cairo_paint_with_alpha (cairo, fill_opacity);
-    }
+    cairo_paint_with_alpha (cairo, fill_opacity);
     cairo_status_t status = cairo_status(cairo);
     if (status)
       printf("BAD status: %s\n", cairo_status_to_string(status));
@@ -1511,7 +1717,17 @@ void CairoOutputDev::paintTransparencyGroup(GfxState * /*state*/, double * /*bbo
       cairo_paint_with_alpha (cairo, fill_opacity);
     }
     cairo_pattern_destroy(mask);
-    mask = NULL;
+    mask = nullptr;
+  }
+
+  if (shape) {
+    if (cairo_shape) {
+      cairo_set_source (cairo_shape, shape);
+      cairo_paint (cairo_shape);
+      cairo_set_source_rgb (cairo_shape, 0, 0, 0);
+    }
+    cairo_pattern_destroy (shape);
+    shape = nullptr;
   }
 
   popTransparencyGroup();
@@ -1530,13 +1746,13 @@ static int luminocity(uint32_t x)
 
 
 /* XXX: do we need to deal with shape here? */
-void CairoOutputDev::setSoftMask(GfxState * state, double * bbox, GBool alpha,
+void CairoOutputDev::setSoftMask(GfxState * state, const double * bbox, bool alpha,
                                  Function * transferFunc, GfxColor * backdropColor) {
   cairo_pattern_destroy(mask);
 
   LOG(printf ("set softMask\n"));
 
-  if (alpha == false) {
+  if (!alpha || transferFunc) {
     /* We need to mask according to the luminocity of the group.
      * So we paint the group to an image surface convert it to a luminocity map
      * and then use that as the mask. */
@@ -1577,15 +1793,18 @@ void CairoOutputDev::setSoftMask(GfxState * state, double * bbox, GBool alpha,
 
     cairo_surface_t *source = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
     cairo_t *maskCtx = cairo_create(source);
+    setContextAntialias(maskCtx, antialias);
 
     //XXX: hopefully this uses the correct color space */
-    GfxRGB backdropColorRGB;
-    groupColorSpaceStack->cs->getRGB(backdropColor, &backdropColorRGB);
-    /* paint the backdrop */
-    cairo_set_source_rgb(maskCtx,
-			 colToDbl(backdropColorRGB.r),
-			 colToDbl(backdropColorRGB.g),
-			 colToDbl(backdropColorRGB.b));
+    if (!alpha && groupColorSpaceStack->cs) {
+      GfxRGB backdropColorRGB;
+      groupColorSpaceStack->cs->getRGB(backdropColor, &backdropColorRGB);
+      /* paint the backdrop */
+      cairo_set_source_rgb(maskCtx,
+                           colToDbl(backdropColorRGB.r),
+                           colToDbl(backdropColorRGB.g),
+                           colToDbl(backdropColorRGB.b));
+    }
     cairo_paint(maskCtx);
 
     /* Copy source ctm to mask ctm and translate origin so that the
@@ -1607,20 +1826,19 @@ void CairoOutputDev::setSoftMask(GfxState * state, double * bbox, GBool alpha,
     cairo_destroy(maskCtx);
 
     /* convert to a luminocity map */
-    uint32_t *source_data = (uint32_t*)cairo_image_surface_get_data(source);
+    uint32_t *source_data = reinterpret_cast<uint32_t *>(cairo_image_surface_get_data(source));
     /* get stride in units of 32 bits */
-    int stride = cairo_image_surface_get_stride(source)/4;
+    ptrdiff_t stride = cairo_image_surface_get_stride(source)/4;
     for (int y=0; y<height; y++) {
       for (int x=0; x<width; x++) {
-	int lum;
-	lum = luminocity(source_data[y*stride + x]);
-	if (transferFunc) {
-	  double lum_in, lum_out;
-	  lum_in = lum/256.0;
-	  transferFunc->transform(&lum_in, &lum_out);
-	  lum = (int)(lum_out * 255.0 + 0.5);
-	}
-	source_data[y*stride + x] = lum << 24;
+	int lum = alpha ? fill_opacity : luminocity(source_data[y*stride + x]);
+        if (transferFunc) {
+          double lum_in, lum_out;
+          lum_in = lum/256.0;
+          transferFunc->transform(&lum_in, &lum_out);
+          lum = (int)(lum_out * 255.0 + 0.5);
+        }
+        source_data[y*stride + x] = lum << 24;
       }
     }
     cairo_surface_mark_dirty (source);
@@ -1640,7 +1858,7 @@ void CairoOutputDev::setSoftMask(GfxState * state, double * bbox, GBool alpha,
     }
 
     cairo_surface_destroy(source);
-  } else {
+  } else if (alpha) {
     mask = cairo_pattern_reference(group);
     cairo_get_matrix(cairo, &mask_matrix);
   }
@@ -1657,7 +1875,7 @@ void CairoOutputDev::popTransparencyGroup() {
       /* we don't need to track the shape anymore because
        * we are not above any knockout groups */
       cairo_destroy(cairo_shape);
-      cairo_shape = NULL;
+      cairo_shape = nullptr;
     }
   }
   groupColorSpaceStack = css->next;
@@ -1668,7 +1886,7 @@ void CairoOutputDev::popTransparencyGroup() {
 void CairoOutputDev::clearSoftMask(GfxState * /*state*/) {
   if (mask)
     cairo_pattern_destroy(mask);
-  mask = NULL;
+  mask = nullptr;
 }
 
 /* Taken from cairo/doc/tutorial/src/singular.c */
@@ -1694,27 +1912,26 @@ get_singular_values (const cairo_matrix_t *matrix,
 		*minor = sqrt (f - delta);
 }
 
-void CairoOutputDev::getScaledSize(int  orig_width,
-				   int  orig_height,
-				   int *scaledWidth,
-				   int *scaledHeight) {
-  cairo_matrix_t matrix;
-  cairo_get_matrix(cairo, &matrix);
-
+void CairoOutputDev::getScaledSize(const cairo_matrix_t *matrix,
+                                   int                   orig_width,
+				   int                   orig_height,
+				   int                  *scaledWidth,
+				   int                  *scaledHeight)
+{
   double xScale;
   double yScale;
   if (orig_width > orig_height)
-    get_singular_values (&matrix, &xScale, &yScale);
+    get_singular_values (matrix, &xScale, &yScale);
   else
-    get_singular_values (&matrix, &yScale, &xScale);
+    get_singular_values (matrix, &yScale, &xScale);
 
-  int tx, tx2, ty, ty2; /* the integer co-oridinates of the resulting image */
+  int tx, tx2, ty, ty2; /* the integer co-ordinates of the resulting image */
   if (xScale >= 0) {
-    tx = splashRound(matrix.x0 - 0.01);
-    tx2 = splashRound(matrix.x0 + xScale + 0.01) - 1;
+    tx = splashRound(matrix->x0 - 0.01);
+    tx2 = splashRound(matrix->x0 + xScale + 0.01) - 1;
   } else {
-    tx = splashRound(matrix.x0 + 0.01) - 1;
-    tx2 = splashRound(matrix.x0 + xScale - 0.01);
+    tx = splashRound(matrix->x0 + 0.01) - 1;
+    tx2 = splashRound(matrix->x0 + xScale - 0.01);
   }
   *scaledWidth = abs(tx2 - tx) + 1;
   //scaledWidth = splashRound(fabs(xScale));
@@ -1725,11 +1942,11 @@ void CairoOutputDev::getScaledSize(int  orig_width,
     *scaledWidth = 1;
   }
   if (yScale >= 0) {
-    ty = splashFloor(matrix.y0 + 0.01);
-    ty2 = splashCeil(matrix.y0 + yScale - 0.01);
+    ty = splashFloor(matrix->y0 + 0.01);
+    ty2 = splashCeil(matrix->y0 + yScale - 0.01);
   } else {
-    ty = splashCeil(matrix.y0 - 0.01);
-    ty2 = splashFloor(matrix.y0 + yScale + 0.01);
+    ty = splashCeil(matrix->y0 - 0.01);
+    ty2 = splashFloor(matrix->y0 + yScale + 0.01);
   }
   *scaledHeight = abs(ty2 - ty);
   if (*scaledHeight == 0) {
@@ -1737,74 +1954,37 @@ void CairoOutputDev::getScaledSize(int  orig_width,
   }
 }
 
-cairo_surface_t *CairoOutputDev::downscaleSurface(cairo_surface_t *orig_surface) {
-  cairo_surface_t *dest_surface;
-  unsigned char *dest_buffer;
-  int dest_stride;
-  unsigned char *orig_buffer;
-  int orig_width, orig_height;
-  int orig_stride;
-  int scaledHeight;
-  int scaledWidth;
-  GBool res;
-
-  if (printing)
-    return NULL;
-
-  orig_width = cairo_image_surface_get_width (orig_surface);
-  orig_height = cairo_image_surface_get_height (orig_surface);
-  getScaledSize (orig_width, orig_height, &scaledWidth, &scaledHeight);
-  if (scaledWidth >= orig_width || scaledHeight >= orig_height)
-    return NULL;
-
-  dest_surface = cairo_surface_create_similar (orig_surface,
-					       cairo_surface_get_content (orig_surface),
-					       scaledWidth, scaledHeight);
-  dest_buffer = cairo_image_surface_get_data (dest_surface);
-  dest_stride = cairo_image_surface_get_stride (dest_surface);
-
-  orig_buffer = cairo_image_surface_get_data (orig_surface);
-  orig_stride = cairo_image_surface_get_stride (orig_surface);
-
-  res = downscale_box_filter((uint32_t *)orig_buffer,
-			     orig_stride, orig_width, orig_height,
-			     scaledWidth, scaledHeight, 0, 0,
-			     scaledWidth, scaledHeight,
-			     (uint32_t *)dest_buffer, dest_stride);
-  if (!res) {
-    cairo_surface_destroy (dest_surface);
-    return NULL;
-  }
-
-  return dest_surface;
-
-}
-
 cairo_filter_t
 CairoOutputDev::getFilterForSurface(cairo_surface_t *image,
-				    GBool interpolate)
+				    bool interpolate)
 {
   if (interpolate)
-    return CAIRO_FILTER_BILINEAR;
+    return CAIRO_FILTER_GOOD;
 
   int orig_width = cairo_image_surface_get_width (image);
   int orig_height = cairo_image_surface_get_height (image);
   if (orig_width == 0 || orig_height == 0)
 	  return CAIRO_FILTER_NEAREST;
 
+  /* When printing, don't change the interpolation. */
+  if (printing)
+    return CAIRO_FILTER_NEAREST;
+
+  cairo_matrix_t matrix;
+  cairo_get_matrix(cairo, &matrix);
   int scaled_width, scaled_height;
-  getScaledSize (orig_width, orig_height, &scaled_width, &scaled_height);
+  getScaledSize (&matrix, orig_width, orig_height, &scaled_width, &scaled_height);
 
   /* When scale factor is >= 400% we don't interpolate. See bugs #25268, #9860 */
   if (scaled_width / orig_width >= 4 || scaled_height / orig_height >= 4)
 	  return CAIRO_FILTER_NEAREST;
 
-  return CAIRO_FILTER_BILINEAR;
+  return CAIRO_FILTER_GOOD;
 }
 
 void CairoOutputDev::drawImageMask(GfxState *state, Object *ref, Stream *str,
-				   int width, int height, GBool invert,
-				   GBool interpolate, GBool inlineImg) {
+				   int width, int height, bool invert,
+				   bool interpolate, bool inlineImg) {
 
   /* FIXME: Doesn't the image mask support any colorspace? */
   cairo_set_source (cairo, fill_pattern);
@@ -1812,7 +1992,7 @@ void CairoOutputDev::drawImageMask(GfxState *state, Object *ref, Stream *str,
   /* work around a cairo bug when scaling 1x1 surfaces */
   if (width == 1 && height == 1) {
     ImageStream *imgStr;
-    Guchar pix;
+    unsigned char pix;
     int invert_bit;
 
     imgStr = new ImageStream(str, width, 1, 1);
@@ -1857,8 +2037,8 @@ void CairoOutputDev::drawImageMask(GfxState *state, Object *ref, Stream *str,
 }
 
 void CairoOutputDev::setSoftMaskFromImageMask(GfxState *state, Object *ref, Stream *str,
-				   int width, int height, GBool invert,
-				   GBool inlineImg, double *baseMatrix) {
+				   int width, int height, bool invert,
+				   bool inlineImg, double *baseMatrix) {
 
   /* FIXME: Doesn't the image mask support any colorspace? */
   cairo_set_source (cairo, fill_pattern);
@@ -1866,7 +2046,7 @@ void CairoOutputDev::setSoftMaskFromImageMask(GfxState *state, Object *ref, Stre
   /* work around a cairo bug when scaling 1x1 surfaces */
   if (width == 1 && height == 1) {
     ImageStream *imgStr;
-    Guchar pix;
+    unsigned char pix;
     int invert_bit;
 
     imgStr = new ImageStream(str, width, 1, 1);
@@ -1876,50 +2056,48 @@ void CairoOutputDev::setSoftMaskFromImageMask(GfxState *state, Object *ref, Stre
     delete imgStr;
 
     invert_bit = invert ? 1 : 0;
-    if (pix ^ invert_bit)
-      return;
-
-    cairo_save (cairo);
-    cairo_rectangle (cairo, 0., 0., width, height);
-    cairo_fill (cairo);
-    cairo_restore (cairo);
-    if (cairo_shape) {
-      cairo_save (cairo_shape);
-      cairo_rectangle (cairo_shape, 0., 0., width, height);
-      cairo_fill (cairo_shape);
-      cairo_restore (cairo_shape);
+    if (!(pix ^ invert_bit)) {
+      cairo_save (cairo);
+      cairo_rectangle (cairo, 0., 0., width, height);
+      cairo_fill (cairo);
+      cairo_restore (cairo);
+      if (cairo_shape) {
+        cairo_save (cairo_shape);
+        cairo_rectangle (cairo_shape, 0., 0., width, height);
+        cairo_fill (cairo_shape);
+        cairo_restore (cairo_shape);
+      }
     }
-    return;
-  }
-
-  cairo_push_group_with_content (cairo, CAIRO_CONTENT_ALPHA);
-
-  /* shape is 1.0 for painted areas, 0.0 for unpainted ones */
-
-  cairo_matrix_t matrix;
-  cairo_get_matrix (cairo, &matrix);
-  //XXX: it is possible that we should only do sub pixel positioning if 
-  // we are rendering fonts */
-  if (!printing && prescaleImages && matrix.xy == 0.0 && matrix.yx == 0.0) {
-    drawImageMaskPrescaled(state, ref, str, width, height, invert, gFalse, inlineImg);
   } else {
-    drawImageMaskRegular(state, ref, str, width, height, invert, gFalse, inlineImg);
-  }
+    cairo_push_group_with_content (cairo, CAIRO_CONTENT_ALPHA);
 
-  if (state->getFillColorSpace()->getMode() == csPattern) {
-    cairo_set_source_rgb (cairo, 1, 1, 1);
-    cairo_set_matrix (cairo, &mask_matrix);
-    cairo_mask (cairo, mask);
-  }
+    /* shape is 1.0 for painted areas, 0.0 for unpainted ones */
 
-  if (mask)
-    cairo_pattern_destroy (mask);
-  mask = cairo_pop_group (cairo);
+    cairo_matrix_t matrix;
+    cairo_get_matrix (cairo, &matrix);
+    //XXX: it is possible that we should only do sub pixel positioning if 
+    // we are rendering fonts */
+    if (!printing && prescaleImages && matrix.xy == 0.0 && matrix.yx == 0.0) {
+      drawImageMaskPrescaled(state, ref, str, width, height, invert, false, inlineImg);
+    } else {
+      drawImageMaskRegular(state, ref, str, width, height, invert, false, inlineImg);
+    }
+
+    if (state->getFillColorSpace()->getMode() == csPattern) {
+      cairo_set_source_rgb (cairo, 1, 1, 1);
+      cairo_set_matrix (cairo, &mask_matrix);
+      cairo_mask (cairo, mask);
+    }
+
+    if (mask)
+      cairo_pattern_destroy (mask);
+    mask = cairo_pop_group (cairo);
+  }
 
   saveState(state);
   double bbox[4] = {0,0,1,1}; // dummy
   beginTransparencyGroup(state, bbox, state->getFillColorSpace(),
-                         gTrue, gFalse, gFalse);
+                         true, false, false);
 }
 
 void CairoOutputDev::unsetSoftMaskFromImageMask(GfxState *state, double *baseMatrix) {
@@ -1932,18 +2110,18 @@ void CairoOutputDev::unsetSoftMaskFromImageMask(GfxState *state, double *baseMat
 }
 
 void CairoOutputDev::drawImageMaskRegular(GfxState *state, Object *ref, Stream *str,
-					  int width, int height, GBool invert,
-					  GBool interpolate, GBool inlineImg) {
+					  int width, int height, bool invert,
+					  bool interpolate, bool inlineImg) {
   unsigned char *buffer;
   unsigned char *dest;
   cairo_surface_t *image;
   cairo_pattern_t *pattern;
   int x, y, i, bit;
   ImageStream *imgStr;
-  Guchar *pix;
+  unsigned char *pix;
   cairo_matrix_t matrix;
   int invert_bit;
-  int row_stride;
+  ptrdiff_t row_stride;
   cairo_filter_t filter;
 
   /* TODO: Do we want to cache these? */
@@ -1994,9 +2172,6 @@ void CairoOutputDev::drawImageMaskRegular(GfxState *state, Object *ref, Stream *
 
   cairo_pattern_set_filter (pattern, filter);
 
-  if (!printing)
-    cairo_pattern_set_extend (pattern, CAIRO_EXTEND_PAD);
-
   cairo_matrix_init_translate (&matrix, 0, height);
   cairo_matrix_scale (&matrix, width, -height);
   cairo_pattern_set_matrix (pattern, &matrix);
@@ -2012,6 +2187,11 @@ void CairoOutputDev::drawImageMaskRegular(GfxState *state, Object *ref, Stream *
     cairo_save (cairo);
     cairo_rectangle (cairo, 0., 0., 1., 1.);
     cairo_clip (cairo);
+    if (strokePathClip) {
+      cairo_push_group (cairo);
+      fillToStrokePathClip (state);
+      cairo_pop_group_to_source (cairo);
+    }
     cairo_mask (cairo, pattern);
     cairo_restore (cairo);
   } else {
@@ -2039,16 +2219,16 @@ cleanup:
 
 
 void CairoOutputDev::drawImageMaskPrescaled(GfxState *state, Object *ref, Stream *str,
-					    int width, int height, GBool invert,
-					    GBool interpolate, GBool inlineImg) {
+					    int width, int height, bool invert,
+					    bool interpolate, bool inlineImg) {
   unsigned char *buffer;
   cairo_surface_t *image;
   cairo_pattern_t *pattern;
   ImageStream *imgStr;
-  Guchar *pix;
+  unsigned char *pix;
   cairo_matrix_t matrix;
   int invert_bit;
-  int row_stride;
+  ptrdiff_t row_stride;
 
   /* cairo does a very poor job of scaling down images so we scale them ourselves */
 
@@ -2062,7 +2242,7 @@ void CairoOutputDev::drawImageMaskPrescaled(GfxState *state, Object *ref, Stream
   /* this whole computation should be factored out */
   double xScale = matrix.xx;
   double yScale = matrix.yy;
-  int tx, tx2, ty, ty2; /* the integer co-oridinates of the resulting image */
+  int tx, tx2, ty, ty2; /* the integer co-ordinates of the resulting image */
   int scaledHeight;
   int scaledWidth;
   if (xScale >= 0) {
@@ -2267,8 +2447,7 @@ void CairoOutputDev::drawImageMaskPrescaled(GfxState *state, Object *ref, Stream
    * cairo doesn't yet do minifaction filtering causing scaled down
    * images with CAIRO_FILTER_NEAREST to look really bad */
   cairo_pattern_set_filter (pattern,
-			    interpolate ? CAIRO_FILTER_BEST : CAIRO_FILTER_FAST);
-  cairo_pattern_set_extend (pattern, CAIRO_EXTEND_PAD);
+			    interpolate ? CAIRO_FILTER_GOOD : CAIRO_FILTER_FAST);
 
   if (state->getFillColorSpace()->getMode() == csPattern) {
     cairo_matrix_init_translate (&matrix, 0, scaledHeight);
@@ -2297,6 +2476,11 @@ void CairoOutputDev::drawImageMaskPrescaled(GfxState *state, Object *ref, Stream
 
     cairo_rectangle (cairo, 0., 0., scaledWidth, scaledHeight);
     cairo_clip (cairo);
+    if (strokePathClip) {
+      cairo_push_group (cairo);
+      fillToStrokePathClip (state);
+      cairo_pop_group_to_source (cairo);
+    }
     cairo_mask (cairo, pattern);
 
     //cairo_get_matrix(cairo, &matrix);
@@ -2331,13 +2515,13 @@ void CairoOutputDev::drawImageMaskPrescaled(GfxState *state, Object *ref, Stream
 void CairoOutputDev::drawMaskedImage(GfxState *state, Object *ref,
 				     Stream *str, int width, int height,
 				     GfxImageColorMap *colorMap,
-				     GBool interpolate,
+				     bool interpolate,
 				     Stream *maskStr, int maskWidth,
-				     int maskHeight, GBool maskInvert,
-				     GBool maskInterpolate)
+				     int maskHeight, bool maskInvert,
+				     bool maskInterpolate)
 {
   ImageStream *maskImgStr, *imgStr;
-  int row_stride;
+  ptrdiff_t row_stride;
   unsigned char *maskBuffer, *buffer;
   unsigned char *maskDest;
   unsigned int *dest;
@@ -2345,7 +2529,7 @@ void CairoOutputDev::drawMaskedImage(GfxState *state, Object *ref,
   cairo_pattern_t *maskPattern, *pattern;
   cairo_matrix_t matrix;
   cairo_matrix_t maskMatrix;
-  Guchar *pix;
+  unsigned char *pix;
   int x, y;
   int invert_bit;
   cairo_filter_t filter;
@@ -2410,7 +2594,7 @@ void CairoOutputDev::drawMaskedImage(GfxState *state, Object *ref,
   buffer = cairo_image_surface_get_data (image);
   row_stride = cairo_image_surface_get_stride (image);
   for (y = 0; y < height; y++) {
-    dest = (unsigned int *) (buffer + y * row_stride);
+    dest = reinterpret_cast<unsigned int *>(buffer + y * row_stride);
     pix = imgStr->getLine();
     colorMap->getRGBLine (pix, dest, width);
   }
@@ -2488,21 +2672,21 @@ cleanup:
 void CairoOutputDev::drawSoftMaskedImage(GfxState *state, Object *ref, Stream *str,
 					 int width, int height,
 					 GfxImageColorMap *colorMap,
-					 GBool interpolate,
+					 bool interpolate,
 					 Stream *maskStr,
 					 int maskWidth, int maskHeight,
 					 GfxImageColorMap *maskColorMap,
-					 GBool maskInterpolate)
+					 bool maskInterpolate)
 {
   ImageStream *maskImgStr, *imgStr;
-  int row_stride;
+  ptrdiff_t row_stride;
   unsigned char *maskBuffer, *buffer;
   unsigned char *maskDest;
   unsigned int *dest;
   cairo_surface_t *maskImage, *image;
   cairo_pattern_t *maskPattern, *pattern;
   cairo_matrix_t maskMatrix, matrix;
-  Guchar *pix;
+  unsigned char *pix;
   int y;
   cairo_filter_t filter;
   cairo_filter_t maskFilter;
@@ -2524,7 +2708,9 @@ void CairoOutputDev::drawSoftMaskedImage(GfxState *state, Object *ref, Stream *s
   for (y = 0; y < maskHeight; y++) {
     maskDest = (unsigned char *) (maskBuffer + y * row_stride);
     pix = maskImgStr->getLine();
-    maskColorMap->getGrayLine (pix, maskDest, maskWidth);
+    if (likely(pix != nullptr)) {
+        maskColorMap->getGrayLine (pix, maskDest, maskWidth);
+    }
   }
 
   maskImgStr->close();
@@ -2560,7 +2746,7 @@ void CairoOutputDev::drawSoftMaskedImage(GfxState *state, Object *ref, Stream *s
   buffer = cairo_image_surface_get_data (image);
   row_stride = cairo_image_surface_get_stride (image);
   for (y = 0; y < height; y++) {
-    dest = (unsigned int *) (buffer + y * row_stride);
+    dest = reinterpret_cast<unsigned int *>(buffer + y * row_stride);
     pix = imgStr->getLine();
     colorMap->getRGBLine (pix, dest, width);
   }
@@ -2569,7 +2755,7 @@ void CairoOutputDev::drawSoftMaskedImage(GfxState *state, Object *ref, Stream *s
 
   cairo_surface_mark_dirty (image);
 
-  setMimeData(str, ref, image);
+  setMimeData(state, str, ref, colorMap, image, height);
 
   pattern = cairo_pattern_create_for_surface (image);
   cairo_surface_destroy (image);
@@ -2611,9 +2797,7 @@ void CairoOutputDev::drawSoftMaskedImage(GfxState *state, Object *ref, Stream *s
 
   cairo_set_source (cairo, pattern);
   if (!printing) {
-    cairo_rectangle (cairo, 0., 0.,
-		     MIN (width, maskWidth) / (double)width,
-		     MIN (height, maskHeight) / (double)height);
+    cairo_rectangle (cairo, 0., 0., 1., 1.);
     cairo_clip (cairo);
   }
   cairo_mask (cairo, maskPattern);
@@ -2622,9 +2806,7 @@ void CairoOutputDev::drawSoftMaskedImage(GfxState *state, Object *ref, Stream *s
     cairo_pop_group_to_source (cairo);
     cairo_save (cairo);
     if (!printing) {
-      cairo_rectangle (cairo, 0., 0.,
-		       MIN (width, maskWidth) / (double)width,
-		       MIN (height, maskHeight) / (double)height);
+      cairo_rectangle (cairo, 0., 0., 1., 1.);
       cairo_clip (cairo);
     }
     cairo_paint_with_alpha (cairo, fill_opacity);
@@ -2635,9 +2817,7 @@ void CairoOutputDev::drawSoftMaskedImage(GfxState *state, Object *ref, Stream *s
     cairo_save (cairo_shape);
     cairo_set_source (cairo_shape, pattern);
     if (!printing) {
-      cairo_rectangle (cairo_shape, 0., 0.,
-		       MIN (width, maskWidth) / (double)width,
-		       MIN (height, maskHeight) / (double)height);
+      cairo_rectangle (cairo_shape, 0., 0., 1., 1.);
       cairo_fill (cairo_shape);
     } else {
       cairo_mask (cairo_shape, pattern);
@@ -2653,7 +2833,7 @@ cleanup:
   delete imgStr;
 }
 
-GBool CairoOutputDev::getStreamData (Stream *str, char **buffer, int *length)
+bool CairoOutputDev::getStreamData (Stream *str, char **buffer, int *length)
 {
   int len, i;
   char *strBuffer;
@@ -2663,7 +2843,7 @@ GBool CairoOutputDev::getStreamData (Stream *str, char **buffer, int *length)
   str->reset();
   while (str->getChar() != EOF) len++;
   if (len == 0)
-    return gFalse;
+    return false;
 
   strBuffer = (char *)gmalloc (len);
 
@@ -2675,176 +2855,442 @@ GBool CairoOutputDev::getStreamData (Stream *str, char **buffer, int *length)
   *buffer = strBuffer;
   *length = len;
 
-  return gTrue;
+  return true;
 }
 
-void CairoOutputDev::setMimeData(Stream *str, Object *ref, cairo_surface_t *image)
+static bool colorMapHasIdentityDecodeMap(GfxImageColorMap *colorMap)
+{
+  for (int i = 0; i < colorMap->getNumPixelComps(); i++) {
+    if (colorMap->getDecodeLow(i) != 0.0 || colorMap->getDecodeHigh(i) != 1.0)
+      return false;
+  }
+  return true;
+}
+
+#if CAIRO_VERSION >= CAIRO_VERSION_ENCODE(1, 11, 2)
+static cairo_status_t setMimeIdFromRef(cairo_surface_t *surface,
+				       const char *mime_type,
+				       const char *mime_id_prefix,
+				       Ref ref)
+{
+  GooString *mime_id;
+  char *idBuffer;
+  cairo_status_t status;
+
+  mime_id = new GooString;
+
+  if (mime_id_prefix)
+    mime_id->append(mime_id_prefix);
+
+  mime_id->appendf("{0:d}-{1:d}", ref.gen, ref.num);
+
+  idBuffer = copyString(mime_id->c_str());
+  status = cairo_surface_set_mime_data (surface, mime_type,
+                                        (const unsigned char *)idBuffer,
+                                        mime_id->getLength(),
+                                        gfree, idBuffer);
+  delete mime_id;
+  if (status)
+    gfree (idBuffer);
+  return status;
+}
+#endif
+
+#if CAIRO_VERSION >= CAIRO_VERSION_ENCODE(1, 14, 0)
+bool CairoOutputDev::setMimeDataForJBIG2Globals(Stream  *str,
+                                                 cairo_surface_t *image)
+{
+  JBIG2Stream *jb2Str = static_cast<JBIG2Stream *>(str);
+  Object* globalsStr = jb2Str->getGlobalsStream();
+  char *globalsBuffer;
+  int globalsLength;
+
+  // nothing to do for JBIG2 stream without Globals
+  if (!globalsStr->isStream())
+    return true;
+
+  if (setMimeIdFromRef(image, CAIRO_MIME_TYPE_JBIG2_GLOBAL_ID, nullptr,
+                       jb2Str->getGlobalsStreamRef()))
+    return false;
+
+  if (!getStreamData(globalsStr->getStream(), &globalsBuffer, &globalsLength))
+    return false;
+
+  if (cairo_surface_set_mime_data (image, CAIRO_MIME_TYPE_JBIG2_GLOBAL,
+                                   (const unsigned char*)globalsBuffer,
+                                   globalsLength,
+                                   gfree, (void*)globalsBuffer))
+  {
+    gfree (globalsBuffer);
+    return false;
+  }
+
+  return true;
+}
+#endif
+
+#if CAIRO_VERSION >= CAIRO_VERSION_ENCODE(1, 15, 10)
+bool CairoOutputDev::setMimeDataForCCITTParams(Stream  *str,
+						cairo_surface_t *image, int height)
+{
+  CCITTFaxStream *ccittStr = static_cast<CCITTFaxStream *>(str);
+
+  GooString params;
+  params.appendf("Columns={0:d}", ccittStr->getColumns());
+  params.appendf(" Rows={0:d}", height);
+  params.appendf(" K={0:d}", ccittStr->getEncoding());
+  params.appendf(" EndOfLine={0:d}", ccittStr->getEndOfLine() ? 1 : 0);
+  params.appendf(" EncodedByteAlign={0:d}", ccittStr->getEncodedByteAlign() ? 1 : 0);
+  params.appendf(" EndOfBlock={0:d}", ccittStr->getEndOfBlock() ? 1 : 0);
+  params.appendf(" BlackIs1={0:d}", ccittStr->getBlackIs1() ? 1 : 0);
+  params.appendf(" DamagedRowsBeforeError={0:d}", ccittStr->getDamagedRowsBeforeError());
+
+  char *p = strdup(params.c_str());
+  if (cairo_surface_set_mime_data (image, CAIRO_MIME_TYPE_CCITT_FAX_PARAMS,
+                                   (const unsigned char*)p,
+                                   params.getLength(),
+                                   gfree, (void*)p))
+  {
+    gfree (p);
+    return false;
+  }
+
+  return true;
+}
+#endif
+
+void CairoOutputDev::setMimeData(GfxState *state, Stream *str, Object *ref,
+				 GfxImageColorMap *colorMap, cairo_surface_t *image, int height)
 {
   char *strBuffer;
   int len;
   Object obj;
+  GfxColorSpace *colorSpace;
+  StreamKind  strKind = str->getKind();
+  const char *mime_type;
 
-  if (!printing || !(str->getKind() == strDCT || str->getKind() == strJPX))
+  if (!printing)
     return;
 
-  // colorspace in stream dict may be different from colorspace in jpx
-  // data
-  if (str->getKind() == strJPX) {
-    GBool hasColorSpace = !str->getDict()->lookup("ColorSpace", &obj)->isNull();
-    obj.free();
-    if (hasColorSpace)
+  switch (strKind) {
+    case strDCT:
+      mime_type = CAIRO_MIME_TYPE_JPEG;
+      break;
+    case strJPX:
+      mime_type = CAIRO_MIME_TYPE_JP2;
+      break;
+#if CAIRO_VERSION >= CAIRO_VERSION_ENCODE(1, 14, 0)
+    case strJBIG2:
+      mime_type = CAIRO_MIME_TYPE_JBIG2;
+      break;
+#endif
+#if CAIRO_VERSION >= CAIRO_VERSION_ENCODE(1, 15, 10)
+    case strCCITTFax:
+      mime_type = CAIRO_MIME_TYPE_CCITT_FAX;
+      break;
+#endif
+    default:
       return;
   }
 
-  if (getStreamData (str->getNextStream(), &strBuffer, &len)) {
-    cairo_status_t st;
+  obj = str->getDict()->lookup("ColorSpace");
+  colorSpace = GfxColorSpace::parse(nullptr, &obj, this, state);
 
-#if CAIRO_VERSION >= CAIRO_VERSION_ENCODE(1, 11, 2)
-    if (ref && ref->isRef()) {
-      Ref imgRef = ref->getRef();
-      GooString *surfaceId = new GooString("poppler-surface-");
-      surfaceId->appendf("{0:d}-{1:d}", imgRef.gen, imgRef.num);
-      char *idBuffer = copyString(surfaceId->getCString());
-      st = cairo_surface_set_mime_data (image, CAIRO_MIME_TYPE_UNIQUE_ID,
-                                        (const unsigned char *)idBuffer,
-                                        surfaceId->getLength(),
-                                        gfree, idBuffer);
-      if (st)
-        gfree(idBuffer);
-      delete surfaceId;
+  // colorspace in stream dict may be different from colorspace in jpx
+  // data
+  if (strKind == strJPX && colorSpace)
+    return;
+
+  // only embed mime data for gray, rgb, and cmyk colorspaces.
+  if (colorSpace) {
+    GfxColorSpaceMode mode = colorSpace->getMode();
+    delete colorSpace;
+    switch (mode) {
+      case csDeviceGray:
+      case csCalGray:
+      case csDeviceRGB:
+      case csCalRGB:
+      case csDeviceCMYK:
+      case csICCBased:
+	break;
+
+      case csLab:
+      case csIndexed:
+      case csSeparation:
+      case csDeviceN:
+      case csPattern:
+	return;
     }
+  }
+
+  if (!colorMapHasIdentityDecodeMap(colorMap))
+    return;
+
+#if CAIRO_VERSION >= CAIRO_VERSION_ENCODE(1, 14, 0)
+  if (strKind == strJBIG2 && !setMimeDataForJBIG2Globals(str, image))
+    return;
 #endif
 
-    st = cairo_surface_set_mime_data (image,
-				      str->getKind() == strDCT ?
-				      CAIRO_MIME_TYPE_JPEG : CAIRO_MIME_TYPE_JP2,
-				      (const unsigned char *)strBuffer, len,
-				      gfree, strBuffer);
-    if (st)
+#if CAIRO_VERSION >= CAIRO_VERSION_ENCODE(1, 15, 10)
+  if (strKind == strCCITTFax && !setMimeDataForCCITTParams(str, image, height))
+    return;
+#endif
+
+  if (getStreamData (str->getNextStream(), &strBuffer, &len)) {
+    cairo_status_t status = CAIRO_STATUS_SUCCESS;
+
+#if CAIRO_VERSION >= CAIRO_VERSION_ENCODE(1, 11, 2)
+    // Since 1.5.10 the cairo PS backend stores images with UNIQUE_ID in PS memory so the
+    // image can be re-used multiple times. As we don't know how large the images are or
+    // how many times they are used, there is no benefit in enabling this. Issue #106
+    if (cairo_surface_get_type (cairo_get_target (cairo)) != CAIRO_SURFACE_TYPE_PS) {
+      if (ref && ref->isRef()) {
+        status = setMimeIdFromRef(image, CAIRO_MIME_TYPE_UNIQUE_ID,
+                                  "poppler-surface-", ref->getRef());
+      }
+    }
+#endif
+    if (!status) {
+      status = cairo_surface_set_mime_data (image, mime_type,
+					    (const unsigned char *)strBuffer, len,
+					    gfree, strBuffer);
+    }
+
+    if (status)
       gfree (strBuffer);
   }
 }
 
-void CairoOutputDev::drawImage(GfxState *state, Object *ref, Stream *str,
-			       int width, int height,
-			       GfxImageColorMap *colorMap,
-			       GBool interpolate,
-			       int *maskColors, GBool inlineImg)
-{
-  cairo_surface_t *image;
-  cairo_pattern_t *pattern, *maskPattern;
+class RescaleDrawImage : public CairoRescaleBox {
+private:
   ImageStream *imgStr;
-  cairo_matrix_t matrix;
-  unsigned char *buffer;
-  int stride, i;
-  GfxRGB *lookup = NULL;
-  cairo_filter_t filter = CAIRO_FILTER_BILINEAR;
+  GfxRGB *lookup;
+  int width;
+  GfxImageColorMap *colorMap;
+  const int *maskColors;
+  int current_row;
+  bool imageError;
 
-  /* TODO: Do we want to cache these? */
-  imgStr = new ImageStream(str, width,
-			   colorMap->getNumPixelComps(),
-			   colorMap->getBits());
-  imgStr->reset();
+public:
+  cairo_surface_t *getSourceImage(Stream *str,
+                                  int widthA, int height,
+                                  int scaledWidth, int scaledHeight,
+                                  bool printing,
+                                  GfxImageColorMap *colorMapA,
+                                  const int *maskColorsA) {
+    cairo_surface_t *image = nullptr;
+    int i;
+
+    lookup = nullptr;
+    colorMap = colorMapA;
+    maskColors = maskColorsA;
+    width = widthA;
+    current_row = -1;
+    imageError = false;
+
+    /* TODO: Do we want to cache these? */
+    imgStr = new ImageStream(str, width,
+                             colorMap->getNumPixelComps(),
+                             colorMap->getBits());
+    imgStr->reset();
 
 #if 0
-  /* ICCBased color space doesn't do any color correction
-   * so check its underlying color space as well */
-  int is_identity_transform;
-  is_identity_transform = colorMap->getColorSpace()->getMode() == csDeviceRGB ||
-		  (colorMap->getColorSpace()->getMode() == csICCBased &&
-		   ((GfxICCBasedColorSpace*)colorMap->getColorSpace())->getAlt()->getMode() == csDeviceRGB);
+    /* ICCBased color space doesn't do any color correction
+     * so check its underlying color space as well */
+    int is_identity_transform;
+    is_identity_transform = colorMap->getColorSpace()->getMode() == csDeviceRGB ||
+      (colorMap->getColorSpace()->getMode() == csICCBased &&
+       ((GfxICCBasedColorSpace*)colorMap->getColorSpace())->getAlt()->getMode() == csDeviceRGB);
 #endif
 
-  image = cairo_image_surface_create (maskColors ?
-				      CAIRO_FORMAT_ARGB32 :
-				      CAIRO_FORMAT_RGB24,
-				      width, height);
-  if (cairo_surface_status (image))
-    goto cleanup;
+    // special case for one-channel (monochrome/gray/separation) images:
+    // build a lookup table here
+    if (colorMap->getNumPixelComps() == 1) {
+      int n;
+      unsigned char pix;
 
-  // special case for one-channel (monochrome/gray/separation) images:
-  // build a lookup table here
-  if (colorMap->getNumPixelComps() == 1) {
-    int n;
-    Guchar pix;
+      n = 1 << colorMap->getBits();
+      lookup = (GfxRGB *)gmallocn(n, sizeof(GfxRGB));
+      for (i = 0; i < n; ++i) {
+        pix = (unsigned char)i;
 
-    n = 1 << colorMap->getBits();
-    lookup = (GfxRGB *)gmallocn(n, sizeof(GfxRGB));
-    for (i = 0; i < n; ++i) {
-      pix = (Guchar)i;
-
-      colorMap->getRGB(&pix, &lookup[i]);
+        colorMap->getRGB(&pix, &lookup[i]);
+      }
     }
-  }
 
-  buffer = cairo_image_surface_get_data (image);
-  stride = cairo_image_surface_get_stride (image);
-  for (int y = 0; y < height; y++) {
-    uint32_t *dest = (uint32_t *) (buffer + y * stride);
-    Guchar *pix = imgStr->getLine();
+#if CAIRO_VERSION >= CAIRO_VERSION_ENCODE(1, 14, 0)
+    bool needsCustomDownscaling = false;
+#else
+    bool needsCustomDownscaling = true;
+#endif
 
-    if (lookup) {
-      Guchar *p = pix;
-      GfxRGB rgb;
+    if (printing) {
+      if (width > MAX_PRINT_IMAGE_SIZE || height > MAX_PRINT_IMAGE_SIZE) {
+	if (width > height) {
+	  scaledWidth = MAX_PRINT_IMAGE_SIZE;
+	  scaledHeight = MAX_PRINT_IMAGE_SIZE * (double)height/width;
+	} else {
+	  scaledHeight = MAX_PRINT_IMAGE_SIZE;
+	  scaledWidth = MAX_PRINT_IMAGE_SIZE * (double)width/height;
+	}
+	needsCustomDownscaling = true;
 
-      for (i = 0; i < width; i++) {
-        rgb = lookup[*p];
-        dest[i] =
-		((int) colToByte(rgb.r) << 16) |
-		((int) colToByte(rgb.g) << 8) |
-		((int) colToByte(rgb.b) << 0);
-	p++;
+        if (scaledWidth == 0) {
+          scaledWidth = 1;
+        }
+        if (scaledHeight == 0) {
+          scaledHeight = 1;
+        }
+      } else {
+	needsCustomDownscaling = false;
+      }
+    }
+
+    if (!needsCustomDownscaling || scaledWidth >= width || scaledHeight >= height) {
+      // No downscaling. Create cairo image containing the source image data.
+      unsigned char *buffer;
+      ptrdiff_t stride;
+
+      image = cairo_image_surface_create (maskColors ?
+                                          CAIRO_FORMAT_ARGB32 :
+                                          CAIRO_FORMAT_RGB24,
+                                          width, height);
+      if (cairo_surface_status (image))
+        goto cleanup;
+
+      buffer = cairo_image_surface_get_data (image);
+      stride = cairo_image_surface_get_stride (image);
+      for (int y = 0; y < height; y++) {
+        uint32_t *dest = reinterpret_cast<uint32_t *>(buffer + y * stride);
+        getRow(y, dest);
       }
     } else {
-      colorMap->getRGBLine (pix, dest, width);
+      // // Downscaling required. Create cairo image the size of the
+      // rescaled image and // downscale the source image data into
+      // the cairo image. downScaleImage() will call getRow() to read
+      // source image data from the image stream. This avoids having
+      // to create an image the size of the source image which may
+      // exceed cairo's 32676x32767 image size limit (and also saves a
+      // lot of memory).
+      image = cairo_image_surface_create (maskColors ?
+                                          CAIRO_FORMAT_ARGB32 :
+                                          CAIRO_FORMAT_RGB24,
+                                          scaledWidth, scaledHeight);
+      if (cairo_surface_status (image))
+        goto cleanup;
+
+      downScaleImage(width, height,
+                     scaledWidth, scaledHeight,
+                     0, 0, scaledWidth, scaledHeight,
+                     image);
+    }
+    cairo_surface_mark_dirty (image);
+
+  cleanup:
+    gfree(lookup);
+    imgStr->close();
+    delete imgStr;
+    return image;
+  }
+
+  void getRow(int row_num, uint32_t *row_data) override {
+    unsigned char *pix;
+
+    if (row_num <= current_row)
+      return;
+
+    while (current_row  < row_num) {
+      pix = imgStr->getLine();
+      current_row++;
+    }
+
+    if (unlikely(pix == nullptr)) {
+      memset(row_data, 0, width*4);
+      if (!imageError) {
+	error(errInternal, -1, "Bad image stream");
+	imageError = true;
+      }
+    } else if (lookup) {
+      unsigned char *p = pix;
+      GfxRGB rgb;
+
+      for (int i = 0; i < width; i++) {
+        rgb = lookup[*p];
+        row_data[i] =
+          ((int) colToByte(rgb.r) << 16) |
+          ((int) colToByte(rgb.g) << 8) |
+          ((int) colToByte(rgb.b) << 0);
+        p++;
+      }
+    } else {
+      colorMap->getRGBLine (pix, row_data, width);
     }
 
     if (maskColors) {
       for (int x = 0; x < width; x++) {
-	bool is_opaque = false;
-	for (int i = 0; i < colorMap->getNumPixelComps(); ++i) {
-	  if (pix[i] < maskColors[2*i] ||
-	      pix[i] > maskColors[2*i+1]) {
-	    is_opaque = true;
-	    break;
-	  }
-	}
-	if (is_opaque)
-	  *dest |= 0xff000000;
-	else
-	  *dest = 0;
-	dest++;
-	pix += colorMap->getNumPixelComps();
+        bool is_opaque = false;
+        for (int i = 0; i < colorMap->getNumPixelComps(); ++i) {
+          if (pix[i] < maskColors[2*i] ||
+              pix[i] > maskColors[2*i+1]) {
+            is_opaque = true;
+            break;
+          }
+        }
+        if (is_opaque)
+          *row_data |= 0xff000000;
+        else
+          *row_data = 0;
+        row_data++;
+        pix += colorMap->getNumPixelComps();
       }
     }
   }
-  gfree(lookup);
 
-  LOG (printf ("drawImage %dx%d\n", width, height));
+};
 
-  cairo_surface_t *scaled_surface;
+void CairoOutputDev::drawImage(GfxState *state, Object *ref, Stream *str,
+			       int widthA, int heightA,
+			       GfxImageColorMap *colorMap,
+			       bool interpolate,
+			       const int *maskColors, bool inlineImg)
+{
+  cairo_surface_t *image;
+  cairo_pattern_t *pattern, *maskPattern;
+  cairo_matrix_t matrix;
+  int width, height;
+  int scaledWidth, scaledHeight;
+  cairo_filter_t filter = CAIRO_FILTER_GOOD;
+  RescaleDrawImage rescale;
 
-  scaled_surface = downscaleSurface (image);
-  if (scaled_surface) {
-    if (cairo_surface_status (scaled_surface))
-      goto cleanup;
-    cairo_surface_destroy (image);
-    image = scaled_surface;
-    width = cairo_image_surface_get_width (image);
-    height = cairo_image_surface_get_height (image);
-  } else {
+  LOG (printf ("drawImage %dx%d\n", widthA, heightA));
+
+  cairo_get_matrix(cairo, &matrix);
+  getScaledSize (&matrix, widthA, heightA, &scaledWidth, &scaledHeight);
+  image = rescale.getSourceImage(str, widthA, heightA, scaledWidth, scaledHeight, printing, colorMap, maskColors);
+  if (!image)
+    return;
+
+  width = cairo_image_surface_get_width (image);
+  height = cairo_image_surface_get_height (image);
+  if (width == widthA && height == heightA)
     filter = getFilterForSurface (image, interpolate);
+
+  if (!inlineImg) { /* don't read stream twice if it is an inline image */
+    // cairo 1.15.10 allows mime image data to have different size to cairo image
+    // mime image size will be scaled to same size as cairo image
+#if CAIRO_VERSION >= CAIRO_VERSION_ENCODE(1, 15, 10)
+    bool requireSameSize = false;
+#else
+    bool requireSameSize = true;
+#endif
+    if (!requireSameSize || (width == widthA && height == heightA))
+      setMimeData(state, str, ref, colorMap, image, heightA);
   }
-
-  cairo_surface_mark_dirty (image);
-
-  if (!inlineImg) /* don't read stream twice if it is an inline image */
-    setMimeData(str, ref, image);
 
   pattern = cairo_pattern_create_for_surface (image);
   cairo_surface_destroy (image);
   if (cairo_pattern_status (pattern))
-    goto cleanup;
+    return;
 
   cairo_pattern_set_filter (pattern, filter);
 
@@ -2856,7 +3302,7 @@ void CairoOutputDev::drawImage(GfxState *state, Object *ref, Stream *str,
   cairo_pattern_set_matrix (pattern, &matrix);
   if (cairo_pattern_status (pattern)) {
     cairo_pattern_destroy (pattern);
-    goto cleanup;
+    return;
   }
 
   if (!mask && fill_opacity != 1.0) {
@@ -2864,7 +3310,7 @@ void CairoOutputDev::drawImage(GfxState *state, Object *ref, Stream *str,
   } else if (mask) {
     maskPattern = cairo_pattern_reference (mask);
   } else {
-    maskPattern = NULL;
+    maskPattern = nullptr;
   }
 
   cairo_save (cairo);
@@ -2874,7 +3320,8 @@ void CairoOutputDev::drawImage(GfxState *state, Object *ref, Stream *str,
   if (maskPattern) {
     if (!printing)
       cairo_clip (cairo);
-    cairo_set_matrix (cairo, &mask_matrix);
+    if (mask)
+      cairo_set_matrix (cairo, &mask_matrix);
     cairo_mask (cairo, maskPattern);
   } else {
     if (printing)
@@ -2899,10 +3346,6 @@ void CairoOutputDev::drawImage(GfxState *state, Object *ref, Stream *str,
   }
 
   cairo_pattern_destroy (pattern);
-
-cleanup:
-  imgStr->close();
-  delete imgStr;
 }
 
 
@@ -2912,11 +3355,11 @@ cleanup:
 
 CairoImageOutputDev::CairoImageOutputDev()
 {
-  images = NULL;
+  images = nullptr;
   numImages = 0;
   size = 0;
-  imgDrawCbk = NULL;
-  imgDrawCbkData = NULL;
+  imgDrawCbk = nullptr;
+  imgDrawCbkData = nullptr;
 }
 
 CairoImageOutputDev::~CairoImageOutputDev()
@@ -2935,31 +3378,46 @@ void CairoImageOutputDev::saveImage(CairoImage *image)
 	  images = (CairoImage **) greallocn (images, size, sizeof (CairoImage *));
   }
   images[numImages++] = image;
-}	
+}
+
+void CairoImageOutputDev::getBBox(GfxState *state, int width, int height,
+                                  double *x1, double *y1, double *x2, double *y2)
+{
+  const double *ctm = state->getCTM();
+  cairo_matrix_t matrix;
+  cairo_matrix_init(&matrix,
+                    ctm[0], ctm[1],
+                    -ctm[2], -ctm[3],
+                    ctm[2] + ctm[4], ctm[3] + ctm[5]);
+
+  int scaledWidth, scaledHeight;
+  getScaledSize (&matrix, width, height, &scaledWidth, &scaledHeight);
+
+  if (matrix.xx >= 0) {
+    *x1 = matrix.x0;
+  } else {
+    *x1 = matrix.x0 - scaledWidth;
+  }
+  *x2 = *x1 + scaledWidth;
+
+  if (matrix.yy >= 0) {
+    *y1 = matrix.y0;
+  } else {
+    *y1 = matrix.y0 - scaledHeight;
+  }
+  *y2 = *y1 + scaledHeight;
+}
 
 void CairoImageOutputDev::drawImageMask(GfxState *state, Object *ref, Stream *str,
-					int width, int height, GBool invert,
-					GBool interpolate, GBool inlineImg)
+					int width, int height, bool invert,
+					bool interpolate, bool inlineImg)
 {
   cairo_t *cr;
   cairo_surface_t *surface;
   double x1, y1, x2, y2;
-  double *ctm;
-  double mat[6];
   CairoImage *image;
 
-  ctm = state->getCTM();
-  
-  mat[0] = ctm[0];
-  mat[1] = ctm[1];
-  mat[2] = -ctm[2];
-  mat[3] = -ctm[3];
-  mat[4] = ctm[2] + ctm[4];
-  mat[5] = ctm[3] + ctm[5];
-  x1 = mat[4];
-  y1 = mat[5];
-  x2 = x1 + width;
-  y2 = y1 + height;
+  getBBox(state, width, height, &x1, &y1, &x2, &y2);
 
   image = new CairoImage (x1, y1, x2, y2);
   saveImage (image);
@@ -2974,7 +3432,40 @@ void CairoImageOutputDev::drawImageMask(GfxState *state, Object *ref, Stream *st
     CairoOutputDev::drawImageMask(state, ref, str, width, height, invert, interpolate, inlineImg);
     image->setImage (surface);
 
-    setCairo (NULL);
+    setCairo (nullptr);
+    cairo_surface_destroy (surface);
+    cairo_destroy (cr);
+  }
+}
+
+void CairoImageOutputDev::setSoftMaskFromImageMask(GfxState *state, Object *ref, Stream *str,
+                                                   int width, int height, bool invert,
+                                                   bool inlineImg, double *baseMatrix)
+{
+  cairo_t *cr;
+  cairo_surface_t *surface;
+  double x1, y1, x2, y2;
+  CairoImage *image;
+
+  getBBox(state, width, height, &x1, &y1, &x2, &y2);
+
+  image = new CairoImage (x1, y1, x2, y2);
+  saveImage (image);
+
+  if (imgDrawCbk && imgDrawCbk (numImages - 1, imgDrawCbkData)) {
+    surface = cairo_image_surface_create (CAIRO_FORMAT_ARGB32, width, height);
+    cr = cairo_create (surface);
+    setCairo (cr);
+    cairo_translate (cr, 0, height);
+    cairo_scale (cr, width, -height);
+
+    CairoOutputDev::drawImageMask(state, ref, str, width, height, invert, inlineImg, false);
+    if (state->getFillColorSpace()->getMode() == csPattern) {
+      cairo_mask (cairo, mask);
+    }
+    image->setImage (surface);
+
+    setCairo (nullptr);
     cairo_surface_destroy (surface);
     cairo_destroy (cr);
   }
@@ -2982,27 +3473,14 @@ void CairoImageOutputDev::drawImageMask(GfxState *state, Object *ref, Stream *st
 
 void CairoImageOutputDev::drawImage(GfxState *state, Object *ref, Stream *str,
 				    int width, int height, GfxImageColorMap *colorMap,
-				    GBool interpolate, int *maskColors, GBool inlineImg)
+				    bool interpolate, const int *maskColors, bool inlineImg)
 {
   cairo_t *cr;
   cairo_surface_t *surface;
   double x1, y1, x2, y2;
-  double *ctm;
-  double mat[6];
   CairoImage *image;
 
-  ctm = state->getCTM();
-  
-  mat[0] = ctm[0];
-  mat[1] = ctm[1];
-  mat[2] = -ctm[2];
-  mat[3] = -ctm[3];
-  mat[4] = ctm[2] + ctm[4];
-  mat[5] = ctm[3] + ctm[5];
-  x1 = mat[4];
-  y1 = mat[5];
-  x2 = x1 + width;
-  y2 = y1 + height;
+  getBBox(state, width, height, &x1, &y1, &x2, &y2);
 
   image = new CairoImage (x1, y1, x2, y2);
   saveImage (image);
@@ -3017,7 +3495,7 @@ void CairoImageOutputDev::drawImage(GfxState *state, Object *ref, Stream *str,
     CairoOutputDev::drawImage(state, ref, str, width, height, colorMap, interpolate, maskColors, inlineImg);
     image->setImage (surface);
     
-    setCairo (NULL);
+    setCairo (nullptr);
     cairo_surface_destroy (surface);
     cairo_destroy (cr);
   }
@@ -3026,31 +3504,18 @@ void CairoImageOutputDev::drawImage(GfxState *state, Object *ref, Stream *str,
 void CairoImageOutputDev::drawSoftMaskedImage(GfxState *state, Object *ref, Stream *str,
 					      int width, int height,
 					      GfxImageColorMap *colorMap,
-					      GBool interpolate,
+					      bool interpolate,
 					      Stream *maskStr,
 					      int maskWidth, int maskHeight,
 					      GfxImageColorMap *maskColorMap,
-					      GBool maskInterpolate)
+					      bool maskInterpolate)
 {
   cairo_t *cr;
   cairo_surface_t *surface;
   double x1, y1, x2, y2;
-  double *ctm;
-  double mat[6];
   CairoImage *image;
 
-  ctm = state->getCTM();
-  
-  mat[0] = ctm[0];
-  mat[1] = ctm[1];
-  mat[2] = -ctm[2];
-  mat[3] = -ctm[3];
-  mat[4] = ctm[2] + ctm[4];
-  mat[5] = ctm[3] + ctm[5];
-  x1 = mat[4];
-  y1 = mat[5];
-  x2 = x1 + width;
-  y2 = y1 + height;
+  getBBox(state, width, height, &x1, &y1, &x2, &y2);
 
   image = new CairoImage (x1, y1, x2, y2);
   saveImage (image);
@@ -3066,7 +3531,7 @@ void CairoImageOutputDev::drawSoftMaskedImage(GfxState *state, Object *ref, Stre
 					maskStr, maskWidth, maskHeight, maskColorMap, maskInterpolate);
     image->setImage (surface);
     
-    setCairo (NULL);
+    setCairo (nullptr);
     cairo_surface_destroy (surface);
     cairo_destroy (cr);
   }
@@ -3075,30 +3540,17 @@ void CairoImageOutputDev::drawSoftMaskedImage(GfxState *state, Object *ref, Stre
 void CairoImageOutputDev::drawMaskedImage(GfxState *state, Object *ref, Stream *str,
 					  int width, int height,
 					  GfxImageColorMap *colorMap,
-					  GBool interpolate,
+					  bool interpolate,
 					  Stream *maskStr,
 					  int maskWidth, int maskHeight,
-					  GBool maskInvert, GBool maskInterpolate)
+					  bool maskInvert, bool maskInterpolate)
 {
   cairo_t *cr;
   cairo_surface_t *surface;
   double x1, y1, x2, y2;
-  double *ctm;
-  double mat[6];
   CairoImage *image;
 
-  ctm = state->getCTM();
-  
-  mat[0] = ctm[0];
-  mat[1] = ctm[1];
-  mat[2] = -ctm[2];
-  mat[3] = -ctm[3];
-  mat[4] = ctm[2] + ctm[4];
-  mat[5] = ctm[3] + ctm[5];
-  x1 = mat[4];
-  y1 = mat[5];
-  x2 = x1 + width;
-  y2 = y1 + height;
+  getBBox(state, width, height, &x1, &y1, &x2, &y2);
 
   image = new CairoImage (x1, y1, x2, y2);
   saveImage (image);
@@ -3114,7 +3566,7 @@ void CairoImageOutputDev::drawMaskedImage(GfxState *state, Object *ref, Stream *
 				    maskStr, maskWidth, maskHeight, maskInvert, maskInterpolate);
     image->setImage (surface);
     
-    setCairo (NULL);
+    setCairo (nullptr);
     cairo_surface_destroy (surface);
     cairo_destroy (cr);
   }

@@ -6,7 +6,7 @@
 //
 // Copyright 2009 Stefan Thomas <thomas@eload24.com>
 // Copyright 2010, 2011 Hib Eris <hib@hiberis.nl>
-// Copyright 2010 Albert Astals Cid <aacid@kde.org>
+// Copyright 2010, 2019 Albert Astals Cid <aacid@kde.org>
 //
 //========================================================================
 
@@ -20,9 +20,9 @@
 
 CurlCachedFileLoader::CurlCachedFileLoader()
 {
-  url = NULL;
-  cachedFile = NULL;
-  curl = NULL;
+  url = nullptr;
+  cachedFile = nullptr;
+  curl = nullptr;
 }
 
 CurlCachedFileLoader::~CurlCachedFileLoader() {
@@ -46,7 +46,7 @@ CurlCachedFileLoader::init(GooString *urlA, CachedFile *cachedFileA)
   cachedFile = cachedFileA;
   curl = curl_easy_init();
 
-  curl_easy_setopt(curl, CURLOPT_URL, url->getCString());
+  curl_easy_setopt(curl, CURLOPT_URL, url->c_str());
   curl_easy_setopt(curl, CURLOPT_HEADER, 1);
   curl_easy_setopt(curl, CURLOPT_NOBODY, 1);
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, &noop_cb);
@@ -75,16 +75,16 @@ int CurlCachedFileLoader::load(const std::vector<ByteRange> &ranges, CachedFileW
 {
   CURLcode r = CURLE_OK;
   size_t fromByte, toByte;
-  for (size_t i = 0; i < ranges.size(); i++) {
+  for (const ByteRange &bRange : ranges) {
 
-     fromByte = ranges[i].offset;
-     toByte = fromByte + ranges[i].length - 1;
+     fromByte = bRange.offset;
+     toByte = fromByte + bRange.length - 1;
      GooString *range = GooString::format("{0:ud}-{1:ud}", fromByte, toByte);
 
-     curl_easy_setopt(curl, CURLOPT_URL, url->getCString());
+     curl_easy_setopt(curl, CURLOPT_URL, url->c_str());
      curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, load_cb);
      curl_easy_setopt(curl, CURLOPT_WRITEDATA, writer);
-     curl_easy_setopt(curl, CURLOPT_RANGE, range->getCString());
+     curl_easy_setopt(curl, CURLOPT_RANGE, range->c_str());
      r = curl_easy_perform(curl);
      curl_easy_reset(curl);
 

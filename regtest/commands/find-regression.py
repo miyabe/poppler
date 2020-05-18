@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+from __future__ import absolute_import, division, print_function
 
 from commands import Command, register_command
 from Bisect import Bisect
@@ -68,11 +69,13 @@ class FindRegression(Command):
         doc = options['test']
         if not os.path.isfile(doc):
             get_printer().printerr("Invalid test %s: not a regulat file" % (doc))
-            return
+            return 1
 
         t = Timer()
         bisect = Bisect(options['test'], options['refs_dir'], options['out_dir'])
         bisect.run()
         get_printer().printout_ln("Tests run in %s" % (t.elapsed_str()))
+
+        return 0
 
 register_command('find-regression', FindRegression)

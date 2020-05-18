@@ -15,16 +15,21 @@
 //
 // Copyright (C) 2005 Kristian Høgsberg <krh@redhat.com>
 // Copyright (C) 2005 Jeff Muizelaar <jeff@infidigm.net>
-// Copyright (C) 2005-2012 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2005-2013, 2016-2019 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2006-2008 Pino Toscano <pino@kde.org>
 // Copyright (C) 2006 Nickolay V. Shmyrev <nshmyrev@yandex.ru>
 // Copyright (C) 2006 Scott Turner <scotty1024@mac.com>
-// Copyright (C) 2006-2011 Carlos Garcia Campos <carlosgc@gnome.org>
+// Copyright (C) 2006-2011, 2015 Carlos Garcia Campos <carlosgc@gnome.org>
 // Copyright (C) 2007 Julien Rebetez <julienr@svn.gnome.org>
 // Copyright (C) 2008 Iñigo Martínez <inigomartinez@gmail.com>
 // Copyright (C) 2008 Brad Hards <bradh@kde.org>
 // Copyright (C) 2008 Ilya Gorenbein <igorenbein@finjan.com>
-// Copyright (C) 2012 Fabio D'Urso <fabiodurso@hotmail.it>
+// Copyright (C) 2012, 2013 Fabio D'Urso <fabiodurso@hotmail.it>
+// Copyright (C) 2013, 2014 Thomas Freitag <Thomas.Freitag@alfa.de>
+// Copyright (C) 2013 Jason Crain <jason@aquaticape.us>
+// Copyright (C) 2013, 2017 Adrian Johnson <ajohnson@redneon.com>
+// Copyright (C) 2015 Philipp Reinkemeier <philipp.reinkemeier@offis.de>
+// Copyright (C) 2018, 2019 Adam Reichold <adam.reichold@t-online.de>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -33,12 +38,8 @@
 
 #include <config.h>
 
-#ifdef USE_GCC_PRAGMAS
-#pragma implementation
-#endif
-
-#include <stddef.h>
-#include <limits.h>
+#include <cstddef>
+#include <climits>
 #include "GlobalParams.h"
 #include "Object.h"
 #include "Array.h"
@@ -91,7 +92,7 @@ void PDFRectangle::clipTo(PDFRectangle *rect) {
 PageAttrs::PageAttrs(PageAttrs *attrs, Dict *dict) {
   Object obj1;
   PDFRectangle mBox;
-  const GBool isPage = dict->is("Page");
+  const bool isPage = dict->is("Page");
 
   // get old/default values
   if (attrs) {
@@ -99,7 +100,7 @@ PageAttrs::PageAttrs(PageAttrs *attrs, Dict *dict) {
     cropBox = attrs->cropBox;
     haveCropBox = attrs->haveCropBox;
     rotate = attrs->rotate;
-    attrs->resources.copy(&resources);
+    resources = attrs->resources.copy();
   } else {
     // set default MediaBox to 8.5" x 11" -- this shouldn't be necessary
     // but some (non-compliant) PDF files don't specify a MediaBox
@@ -108,9 +109,9 @@ PageAttrs::PageAttrs(PageAttrs *attrs, Dict *dict) {
     mediaBox.x2 = 612;
     mediaBox.y2 = 792;
     cropBox.x1 = cropBox.y1 = cropBox.x2 = cropBox.y2 = 0;
-    haveCropBox = gFalse;
+    haveCropBox = false;
     rotate = 0;
-    resources.initNull();
+    resources.setToNull();
   }
 
   // media box
@@ -120,7 +121,7 @@ PageAttrs::PageAttrs(PageAttrs *attrs, Dict *dict) {
 
   // crop box
   if (readBox(dict, "CropBox", &cropBox)) {
-    haveCropBox = gTrue;
+    haveCropBox = true;
   }
   if (!haveCropBox) {
     cropBox = mediaBox;
@@ -149,11 +150,10 @@ PageAttrs::PageAttrs(PageAttrs *attrs, Dict *dict) {
   readBox(dict, "ArtBox", &artBox);
 
   // rotate
-  dict->lookup("Rotate", &obj1);
+  obj1 = dict->lookup("Rotate");
   if (obj1.isInt()) {
     rotate = obj1.getInt();
   }
-  obj1.free();
   while (rotate < 0) {
     rotate += 360;
   }
@@ -162,30 +162,21 @@ PageAttrs::PageAttrs(PageAttrs *attrs, Dict *dict) {
   }
 
   // misc attributes
-  dict->lookup("LastModified", &lastModified);
-  dict->lookup("BoxColorInfo", &boxColorInfo);
-  dict->lookup("Group", &group);
-  dict->lookup("Metadata", &metadata);
-  dict->lookup("PieceInfo", &pieceInfo);
-  dict->lookup("SeparationInfo", &separationInfo);
+  lastModified = dict->lookup("LastModified");
+  boxColorInfo = dict->lookup("BoxColorInfo");
+  group = dict->lookup("Group");
+  metadata = dict->lookup("Metadata");
+  pieceInfo = dict->lookup("PieceInfo");
+  separationInfo = dict->lookup("SeparationInfo");
 
   // resource dictionary
-  dict->lookup("Resources", &obj1);
-  if (obj1.isDict()) {
-    resources.free();
-    obj1.copy(&resources);
+  Object objResources = dict->lookup("Resources");
+  if (objResources.isDict()) {
+    resources = std::move(objResources);
   }
-  obj1.free();
 }
 
 PageAttrs::~PageAttrs() {
-  lastModified.free();
-  boxColorInfo.free();
-  group.free();
-  metadata.free();
-  pieceInfo.free();
-  separationInfo.free();
-  resources.free();
 }
 
 void PageAttrs::clipBoxes() {
@@ -195,45 +186,41 @@ void PageAttrs::clipBoxes() {
   artBox.clipTo(&mediaBox);
 }
 
-GBool PageAttrs::readBox(Dict *dict, const char *key, PDFRectangle *box) {
+bool PageAttrs::readBox(Dict *dict, const char *key, PDFRectangle *box) {
   PDFRectangle tmp;
   double t;
   Object obj1, obj2;
-  GBool ok;
+  bool ok;
 
-  dict->lookup(key, &obj1);
+  obj1 = dict->lookup(key);
   if (obj1.isArray() && obj1.arrayGetLength() == 4) {
-    ok = gTrue;
-    obj1.arrayGet(0, &obj2);
+    ok = true;
+    obj2 = obj1.arrayGet(0);
     if (obj2.isNum()) {
       tmp.x1 = obj2.getNum();
     } else {
-      ok = gFalse;
+      ok = false;
     }
-    obj2.free();
-    obj1.arrayGet(1, &obj2);
+    obj2 = obj1.arrayGet(1);
     if (obj2.isNum()) {
       tmp.y1 = obj2.getNum();
     } else {
-      ok = gFalse;
+      ok = false;
     }
-    obj2.free();
-    obj1.arrayGet(2, &obj2);
+    obj2 = obj1.arrayGet(2);
     if (obj2.isNum()) {
       tmp.x2 = obj2.getNum();
     } else {
-      ok = gFalse;
+      ok = false;
     }
-    obj2.free();
-    obj1.arrayGet(3, &obj2);
+    obj2 = obj1.arrayGet(3);
     if (obj2.isNum()) {
       tmp.y2 = obj2.getNum();
     } else {
-      ok = gFalse;
+      ok = false;
     }
-    obj2.free();
     if (tmp.x1 == 0 && tmp.x2 == 0 && tmp.y1 == 0 && tmp.y2 == 0)
-      ok = gFalse;
+      ok = false;
     if (ok) {
       if (tmp.x1 > tmp.x2) {
 	t = tmp.x1; tmp.x1 = tmp.x2; tmp.x2 = t;
@@ -244,9 +231,8 @@ GBool PageAttrs::readBox(Dict *dict, const char *key, PDFRectangle *box) {
       *box = tmp;
     }
   } else {
-    ok = gFalse;
+    ok = false;
   }
-  obj1.free();
   return ok;
 }
 
@@ -254,17 +240,17 @@ GBool PageAttrs::readBox(Dict *dict, const char *key, PDFRectangle *box) {
 // Page
 //------------------------------------------------------------------------
 
-Page::Page(PDFDoc *docA, int numA, Dict *pageDict, Ref pageRefA, PageAttrs *attrsA, Form *form) {
-  Object tmp;
-	
-  ok = gTrue;
+#define pageLocker()   std::unique_lock<std::recursive_mutex> locker(mutex)
+
+Page::Page(PDFDoc *docA, int numA, Object &&pageDict, Ref pageRefA, PageAttrs *attrsA, Form *form) {
+  ok = true;
   doc = docA;
   xref = doc->getXRef();
   num = numA;
   duration = -1;
-  annots = NULL;
+  annots = nullptr;
 
-  pageObj.initDict(pageDict);
+  pageObj = std::move(pageDict);
   pageRef = pageRefA;
 
   // get attributes
@@ -272,97 +258,118 @@ Page::Page(PDFDoc *docA, int numA, Dict *pageDict, Ref pageRefA, PageAttrs *attr
   attrs->clipBoxes();
 
   // transtion
-  pageDict->lookupNF("Trans", &trans);
+  trans = pageObj.dictLookupNF("Trans").copy();
   if (!(trans.isRef() || trans.isDict() || trans.isNull())) {
     error(errSyntaxError, -1, "Page transition object (page {0:d}) is wrong type ({1:s})",
 	  num, trans.getTypeName());
-    trans.free();
+    trans = Object();
   }
 
   // duration
-  pageDict->lookupNF("Dur", &tmp);
+  const Object &tmp = pageObj.dictLookupNF("Dur");
   if (!(tmp.isNum() || tmp.isNull())) {
     error(errSyntaxError, -1, "Page duration object (page {0:d}) is wrong type ({1:s})",
 	  num, tmp.getTypeName());
   } else if (tmp.isNum()) {
     duration = tmp.getNum();
   }
-  tmp.free();
 
   // annotations
-  pageDict->lookupNF("Annots", &annotsObj);
+  annotsObj = pageObj.dictLookupNF("Annots").copy();
   if (!(annotsObj.isRef() || annotsObj.isArray() || annotsObj.isNull())) {
     error(errSyntaxError, -1, "Page annotations object (page {0:d}) is wrong type ({1:s})",
 	  num, annotsObj.getTypeName());
-    annotsObj.free();
     goto err2;
   }
 
   // contents
-  pageDict->lookupNF("Contents", &contents);
+  contents = pageObj.dictLookupNF("Contents").copy();
   if (!(contents.isRef() || contents.isArray() ||
 	contents.isNull())) {
     error(errSyntaxError, -1, "Page contents object (page {0:d}) is wrong type ({1:s})",
 	  num, contents.getTypeName());
-    contents.free();
     goto err1;
   }
 
   // thumb
-  pageDict->lookupNF("Thumb", &thumb);
+  thumb = pageObj.dictLookupNF("Thumb").copy();
   if (!(thumb.isStream() || thumb.isNull() || thumb.isRef())) {
       error(errSyntaxError, -1, "Page thumb object (page {0:d}) is wrong type ({1:s})",
             num, thumb.getTypeName());
-      thumb.initNull(); 
+      thumb.setToNull();
   }
 
   // actions
-  pageDict->lookupNF("AA", &actions);
+  actions = pageObj.dictLookupNF("AA").copy();
   if (!(actions.isDict() || actions.isNull())) {
       error(errSyntaxError, -1, "Page additional action object (page {0:d}) is wrong type ({1:s})",
             num, actions.getTypeName());
-      actions.initNull();
+      actions.setToNull();
   }
   
   return;
 
-  trans.initNull();
  err2:
-  annotsObj.initNull();
+  annotsObj.setToNull();
  err1:
-  contents.initNull();
-  ok = gFalse;
+  contents.setToNull();
+  ok = false;
 }
 
 Page::~Page() {
   delete attrs;
   delete annots;
-  pageObj.free();
-  annotsObj.free();
-  contents.free();
-  trans.free();
-  thumb.free();
-  actions.free();
 }
 
-Annots *Page::getAnnots() {
+Dict *Page::getResourceDict() { 
+  return attrs->getResourceDict();
+}
+
+Object *Page::getResourceDictObject()
+{
+  return attrs->getResourceDictObject();
+}
+
+Dict *Page::getResourceDictCopy(XRef *xrefA) { 
+  pageLocker();
+  Dict *dict = attrs->getResourceDict();
+  return dict ? dict->copy(xrefA) : nullptr;
+}
+
+void Page::replaceXRef(XRef *xrefA) {
+  Dict *pageDict = pageObj.getDict()->copy(xrefA);
+  xref = xrefA;
+  trans = pageDict->lookupNF("Trans").copy();
+  annotsObj = pageDict->lookupNF("Annots").copy();
+  contents = pageDict->lookupNF("Contents").copy();
+  if (contents.isArray()) {
+    contents = Object(contents.getArray()->copy(xrefA));
+  }
+  thumb = pageDict->lookupNF("Thumb").copy();
+  actions = pageDict->lookupNF("AA").copy();
+  Object resources = pageDict->lookup("Resources");
+  if (resources.isDict()) {
+    attrs->replaceResource(std::move(resources));
+  }
+  delete pageDict;
+}
+
+Annots *Page::getAnnots(XRef *xrefA) {
   if (!annots) {
-    Object obj;
-    annots = new Annots(doc, num, getAnnots(&obj));
-    obj.free();
+    Object obj = getAnnotsObject(xrefA);
+    annots = new Annots(doc, num, &obj);
   }
 
   return annots;
 }
 
 void Page::addAnnot(Annot *annot) {
-  Object obj1;
-  Object tmp;
-  Ref annotRef = annot->getRef ();
+  const Ref annotRef = annot->getRef ();
 
   // Make sure we have annots before adding the new one
   // even if it's an empty list so that we can safely
   // call annots->appendAnnot(annot)
+  pageLocker();
   getAnnots();
 
   if (annotsObj.isNull()) {
@@ -370,50 +377,61 @@ void Page::addAnnot(Annot *annot) {
     // page doesn't have annots array,
     // we have to create it
 
-    obj1.initArray(xref);
-    obj1.arrayAdd(tmp.initRef (annotRef.num, annotRef.gen));
-    tmp.free();
+    Object obj1 = Object(new Array(xref));
+    obj1.arrayAdd(Object(annotRef));
 
     annotsRef = xref->addIndirectObject (&obj1);
-    annotsObj.initRef(annotsRef.num, annotsRef.gen);
-    pageObj.dictSet ("Annots", &annotsObj);
+    annotsObj = Object(annotsRef);
+    pageObj.dictSet ("Annots", Object(annotsRef));
     xref->setModifiedObject (&pageObj, pageRef);
   } else {
-    getAnnots(&obj1);
+    Object obj1 = getAnnotsObject();
     if (obj1.isArray()) {
-      obj1.arrayAdd (tmp.initRef (annotRef.num, annotRef.gen));
+      obj1.arrayAdd (Object(annotRef));
       if (annotsObj.isRef())
         xref->setModifiedObject (&obj1, annotsObj.getRef());
       else
         xref->setModifiedObject (&pageObj, pageRef);
     }
-    obj1.free();
   }
 
-  annots->appendAnnot(annot);
-  annot->setPage(num, gTrue);
+  // Popup annots are already handled by markup annots,
+  // so add to the list only Popup annots without a
+  // markup annotation associated.
+  if (annot->getType() != Annot::typePopup ||
+      !static_cast<AnnotPopup*>(annot)->hasParent()) {
+    annots->appendAnnot(annot);
+  }
+  annot->setPage(num, true);
+
+  AnnotMarkup *annotMarkup = dynamic_cast<AnnotMarkup*>(annot);
+  if (annotMarkup) {
+    AnnotPopup *annotPopup = annotMarkup->getPopup();
+    if (annotPopup)
+      addAnnot(annotPopup);
+  }
 }
 
 void Page::removeAnnot(Annot *annot) {
   Ref annotRef = annot->getRef();
-  Object annArray;
 
-  getAnnots(&annArray);
+  pageLocker();
+  Object annArray = getAnnotsObject();
   if (annArray.isArray()) {
     int idx = -1;
     // Get annotation position
     for (int i = 0; idx == -1 && i < annArray.arrayGetLength(); ++i) {
-      Object tmp;
-      Ref currAnnot = annArray.arrayGetNF(i, &tmp)->getRef();
-      tmp.free();
-      if (currAnnot.num == annotRef.num && currAnnot.gen == annotRef.gen) {
-        idx = i;
+      const Object &tmp = annArray.arrayGetNF(i);
+      if (tmp.isRef()) {
+        const Ref currAnnot = tmp.getRef();
+        if (currAnnot == annotRef) {
+          idx = i;
+        }
       }
     }
 
     if (idx == -1) {
       error(errInternal, -1, "Annotation doesn't belong to this page");
-      annArray.free();
       return;
     }
     annots->removeAnnot(annot); // Gracefully fails on popup windows
@@ -426,9 +444,8 @@ void Page::removeAnnot(Annot *annot) {
       xref->setModifiedObject (&pageObj, pageRef);
     }
   }
-  annArray.free();
   annot->removeReferencedObjects(); // Note: Might recurse in removeAnnot again
-  annot->setPage(0, gFalse);
+  annot->setPage(0, false);
 }
 
 Links *Page::getLinks() {
@@ -440,24 +457,25 @@ FormPageWidgets *Page::getFormWidgets() {
 }
 
 void Page::display(OutputDev *out, double hDPI, double vDPI,
-		   int rotate, GBool useMediaBox, GBool crop,
-		   GBool printing,
-		   GBool (*abortCheckCbk)(void *data),
+		   int rotate, bool useMediaBox, bool crop,
+		   bool printing,
+		   bool (*abortCheckCbk)(void *data),
 		   void *abortCheckCbkData,
-                   GBool (*annotDisplayDecideCbk)(Annot *annot, void *user_data),
-                   void *annotDisplayDecideCbkData) {
+                   bool (*annotDisplayDecideCbk)(Annot *annot, void *user_data),
+                   void *annotDisplayDecideCbkData,
+                   bool copyXRef) {
   displaySlice(out, hDPI, vDPI, rotate, useMediaBox, crop, -1, -1, -1, -1, printing,
 	       abortCheckCbk, abortCheckCbkData,
-               annotDisplayDecideCbk, annotDisplayDecideCbkData);
+               annotDisplayDecideCbk, annotDisplayDecideCbkData, copyXRef);
 }
 
 Gfx *Page::createGfx(OutputDev *out, double hDPI, double vDPI,
-		     int rotate, GBool useMediaBox, GBool crop,
+		     int rotate, bool useMediaBox, bool crop,
 		     int sliceX, int sliceY, int sliceW, int sliceH,
-		     GBool printing,
-		     GBool (*abortCheckCbk)(void *data),
-		     void *abortCheckCbkData) {
-  PDFRectangle *mediaBox, *cropBox;
+		     bool printing,
+		     bool (*abortCheckCbk)(void *data),
+		     void *abortCheckCbkData, XRef *xrefA) {
+  const PDFRectangle *mediaBox, *cropBox;
   PDFRectangle box;
   Gfx *gfx;
 
@@ -481,23 +499,26 @@ Gfx *Page::createGfx(OutputDev *out, double hDPI, double vDPI,
     printf("***** Rotate = %d\n", attrs->getRotate());
   }
 
+  if (!crop) {
+    crop = (box == *cropBox) && out->needClipToCropBox();
+  }
   gfx = new Gfx(doc, out, num, attrs->getResourceDict(),
-		hDPI, vDPI, &box, crop ? cropBox : (PDFRectangle *)NULL,
-		rotate, abortCheckCbk, abortCheckCbkData);
+		hDPI, vDPI, &box, crop ? cropBox : nullptr,
+		rotate, abortCheckCbk, abortCheckCbkData, xrefA);
 
   return gfx;
 }
 
 void Page::displaySlice(OutputDev *out, double hDPI, double vDPI,
-			int rotate, GBool useMediaBox, GBool crop,
+			int rotate, bool useMediaBox, bool crop,
 			int sliceX, int sliceY, int sliceW, int sliceH,
-			GBool printing,
-			GBool (*abortCheckCbk)(void *data),
+			bool printing,
+			bool (*abortCheckCbk)(void *data),
 			void *abortCheckCbkData,
-                        GBool (*annotDisplayDecideCbk)(Annot *annot, void *user_data),
-                        void *annotDisplayDecideCbkData) {
+                        bool (*annotDisplayDecideCbk)(Annot *annot, void *user_data),
+                        void *annotDisplayDecideCbkData,
+                        bool copyXRef) {
   Gfx *gfx;
-  Object obj;
   Annots *annotList;
   int i;
   
@@ -508,13 +529,18 @@ void Page::displaySlice(OutputDev *out, double hDPI, double vDPI,
 			   annotDisplayDecideCbk, annotDisplayDecideCbkData)) {
     return;
   }
+  pageLocker();
+  XRef *localXRef = (copyXRef) ? xref->copy() : xref;
+  if (copyXRef) {
+    replaceXRef(localXRef);
+  }
 
   gfx = createGfx(out, hDPI, vDPI, rotate, useMediaBox, crop,
 		  sliceX, sliceY, sliceW, sliceH,
 		  printing,
-		  abortCheckCbk, abortCheckCbkData);
+		  abortCheckCbk, abortCheckCbkData, localXRef);
 
-  contents.fetch(xref, &obj);
+  Object obj = contents.fetch(localXRef);
   if (!obj.isNull()) {
     gfx->saveState();
     gfx->display(&obj);
@@ -524,7 +550,6 @@ void Page::displaySlice(OutputDev *out, double hDPI, double vDPI,
     // OutputDev
     out->dump();
   }
-  obj.free();
 
   // draw annotations
   annotList = getAnnots();
@@ -545,38 +570,39 @@ void Page::displaySlice(OutputDev *out, double hDPI, double vDPI,
   }
 
   delete gfx;
+  if (copyXRef) {
+    replaceXRef(doc->getXRef());
+    delete localXRef;
+  }
 }
 
 void Page::display(Gfx *gfx) {
-  Object obj;
-
-  contents.fetch(xref, &obj);
+  Object obj = contents.fetch(xref);
   if (!obj.isNull()) {
     gfx->saveState();
     gfx->display(&obj);
     gfx->restoreState();
   }
-  obj.free();
 }
 
-GBool Page::loadThumb(unsigned char **data_out,
+bool Page::loadThumb(unsigned char **data_out,
 		      int *width_out, int *height_out,
 		      int *rowstride_out)
 {
   unsigned int pixbufdatasize;
   int width, height, bits;
-  Object obj1, fetched_thumb;
+  Object obj1;
   Dict *dict;
   GfxColorSpace *colorSpace;
-  GBool success = gFalse;
+  bool success = false;
   Stream *str;
   GfxImageColorMap *colorMap;
 
   /* Get stream dict */
-  thumb.fetch(xref, &fetched_thumb);
+  pageLocker();
+  Object fetched_thumb = thumb.fetch(xref);
   if (!fetched_thumb.isStream()) {
-    fetched_thumb.free();
-    return gFalse;
+    return false;
   }
 
   dict = fetched_thumb.streamGetDict();
@@ -597,25 +623,21 @@ GBool Page::loadThumb(unsigned char **data_out,
   pixbufdatasize = width * height * 3;
 
   /* Get color space */
-  dict->lookup ("ColorSpace", &obj1);
+  obj1 = dict->lookup ("ColorSpace");
   if (obj1.isNull ()) {
-    obj1.free ();
-    dict->lookup ("CS", &obj1);
+    obj1 = dict->lookup ("CS");
   }
-  colorSpace = GfxColorSpace::parse(&obj1, NULL);
-  obj1.free();
+  colorSpace = GfxColorSpace::parse(nullptr, &obj1, nullptr, nullptr);
   if (!colorSpace) {
     fprintf (stderr, "Error: Cannot parse color space\n");
     goto fail1;
   }
 
-  dict->lookup("Decode", &obj1);
+  obj1 = dict->lookup("Decode");
   if (obj1.isNull()) {
-    obj1.free();
-    dict->lookup("D", &obj1);
+    obj1 = dict->lookup("D");
   }
   colorMap = new GfxImageColorMap(bits, &obj1, colorSpace);
-  obj1.free();
   if (!colorMap->isOk()) {
     fprintf (stderr, "Error: invalid colormap\n");
     delete colorMap;
@@ -631,7 +653,7 @@ GBool Page::loadThumb(unsigned char **data_out,
     imgstr->reset();
     for (int row = 0; row < height; ++row) {
       for (int col = 0; col < width; ++col) {
-        Guchar pix[gfxColorMaxComps];
+        unsigned char pix[gfxColorMaxComps];
         GfxRGB rgb;
 
         imgstr->getPixel(pix);
@@ -647,7 +669,7 @@ GBool Page::loadThumb(unsigned char **data_out,
     delete imgstr;
   }
 
-  success = gTrue;
+  success = true;
 
   if (width_out)
     *width_out = width;
@@ -658,16 +680,14 @@ GBool Page::loadThumb(unsigned char **data_out,
 
   delete colorMap;
  fail1:
-  fetched_thumb.free();
-
   return success;
 }
 
 void Page::makeBox(double hDPI, double vDPI, int rotate,
-		   GBool useMediaBox, GBool upsideDown,
+		   bool useMediaBox, bool upsideDown,
 		   double sliceX, double sliceY, double sliceW, double sliceH,
-		   PDFRectangle *box, GBool *crop) {
-  PDFRectangle *mediaBox, *cropBox, *baseBox;
+		   PDFRectangle *box, bool *crop) {
+  const PDFRectangle *mediaBox, *cropBox, *baseBox;
   double kx, ky;
 
   mediaBox = getMediaBox();
@@ -721,7 +741,7 @@ void Page::makeBox(double hDPI, double vDPI, int rotate,
     *box = *mediaBox;
   } else {
     *box = *cropBox;
-    *crop = gFalse;
+    *crop = false;
   }
 }
 
@@ -737,7 +757,7 @@ void Page::processLinks(OutputDev *out) {
 }
 
 void Page::getDefaultCTM(double *ctm, double hDPI, double vDPI,
-			 int rotate, GBool useMediaBox, GBool upsideDown) {
+			 int rotate, bool useMediaBox, bool upsideDown) {
   GfxState *state;
   int i;
   rotate += getRotate();
@@ -753,4 +773,19 @@ void Page::getDefaultCTM(double *ctm, double hDPI, double vDPI,
     ctm[i] = state->getCTM()[i];
   }
  delete state;
+}
+
+LinkAction* Page::getAdditionalAction(PageAdditionalActionsType type) {
+  LinkAction *linkAction = nullptr;
+  Object additionalActionsObject = actions.fetch(doc->getXRef());
+  if (additionalActionsObject.isDict()) {
+    const char *key = (type == actionOpenPage ?  "O" :
+                       type == actionClosePage ? "C" : nullptr);
+
+    Object actionObject = additionalActionsObject.dictLookup(key);
+    if (actionObject.isDict())
+      linkAction = LinkAction::parseAction(&actionObject, doc->getCatalog()->getBaseURI());
+  }
+
+  return linkAction;
 }

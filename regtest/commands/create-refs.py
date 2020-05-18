@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+from __future__ import absolute_import, division, print_function
 
 from commands import Command, register_command
 from TestReferences import TestReferences
@@ -62,5 +63,7 @@ class CreateRefs(Command):
         else:
             refs.create_refs_for_file(os.path.basename(doc))
         get_printer().printout_ln("Refs created in %s" % (t.elapsed_str()))
+
+        return 0
 
 register_command('create-refs', CreateRefs)

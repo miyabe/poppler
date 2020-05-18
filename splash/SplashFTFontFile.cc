@@ -12,6 +12,9 @@
 // under GPL version 2 or later
 //
 // Copyright (C) 2006 Takashi Iwai <tiwai@suse.de>
+// Copyright (C) 2014, 2017 Adrian Johnson <ajohnson@redneon.com>
+// Copyright (C) 2017, 2018 Oliver Sander <oliver.sander@tu-dresden.de>
+// Copyright (C) 2018 Albert Astals Cid <aacid@kde.org>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -20,14 +23,9 @@
 
 #include <config.h>
 
-#if HAVE_FREETYPE_FREETYPE_H || HAVE_FREETYPE_H
-
-#ifdef USE_GCC_PRAGMAS
-#pragma implementation
-#endif
-
 #include "goo/gmem.h"
 #include "goo/GooString.h"
+#include "poppler/GfxFont.h"
 #include "SplashFTFontEngine.h"
 #include "SplashFTFont.h"
 #include "SplashFTFontFile.h"
@@ -46,22 +44,28 @@ SplashFontFile *SplashFTFontFile::loadType1Font(SplashFTFontEngine *engineA,
   int i;
 
   if (src->isFile) {
-    if (FT_New_Face(engineA->lib, src->fileName->getCString(), 0, &faceA))
-      return NULL;
+    if (FT_New_Face(engineA->lib, src->fileName->c_str(), 0, &faceA))
+      return nullptr;
   } else {
     if (FT_New_Memory_Face(engineA->lib, (const FT_Byte *)src->buf, src->bufLen, 0, &faceA))
-      return NULL;
+      return nullptr;
   }
   codeToGIDA = (int *)gmallocn(256, sizeof(int));
   for (i = 0; i < 256; ++i) {
     codeToGIDA[i] = 0;
     if ((name = encA[i])) {
       codeToGIDA[i] = (int)FT_Get_Name_Index(faceA, (char *)name);
+      if (codeToGIDA[i] == 0) {
+	name = GfxFont::getAlternateName(name);
+	if (name) {
+	  codeToGIDA[i] = FT_Get_Name_Index(faceA, (char *)name);
+	}
+      }
     }
   }
 
   return new SplashFTFontFile(engineA, idA, src,
-			      faceA, codeToGIDA, 256, gFalse, gTrue);
+			      faceA, codeToGIDA, 256, false, true);
 }
 
 SplashFontFile *SplashFTFontFile::loadCIDFont(SplashFTFontEngine *engineA,
@@ -72,15 +76,15 @@ SplashFontFile *SplashFTFontFile::loadCIDFont(SplashFTFontEngine *engineA,
   FT_Face faceA;
 
   if (src->isFile) {
-    if (FT_New_Face(engineA->lib, src->fileName->getCString(), 0, &faceA))
-      return NULL;
+    if (FT_New_Face(engineA->lib, src->fileName->c_str(), 0, &faceA))
+      return nullptr;
   } else {
     if (FT_New_Memory_Face(engineA->lib, (const FT_Byte *)src->buf, src->bufLen, 0, &faceA))
-      return NULL;
+      return nullptr;
   }
 
   return new SplashFTFontFile(engineA, idA, src,
-			      faceA, codeToGIDA, codeToGIDLenA, gFalse, gFalse);
+			      faceA, codeToGIDA, codeToGIDLenA, false, false);
 }
 
 SplashFontFile *SplashFTFontFile::loadTrueTypeFont(SplashFTFontEngine *engineA,
@@ -92,24 +96,24 @@ SplashFontFile *SplashFTFontFile::loadTrueTypeFont(SplashFTFontEngine *engineA,
   FT_Face faceA;
 
   if (src->isFile) {
-    if (FT_New_Face(engineA->lib, src->fileName->getCString(), faceIndexA, &faceA))
-      return NULL;
+    if (FT_New_Face(engineA->lib, src->fileName->c_str(), faceIndexA, &faceA))
+      return nullptr;
   } else {
     if (FT_New_Memory_Face(engineA->lib, (const FT_Byte *)src->buf, src->bufLen, faceIndexA, &faceA))
-      return NULL;
+      return nullptr;
   }
 
   return new SplashFTFontFile(engineA, idA, src,
-			      faceA, codeToGIDA, codeToGIDLenA, gTrue, gFalse);
+			      faceA, codeToGIDA, codeToGIDLenA, true, false);
 }
 
 SplashFTFontFile::SplashFTFontFile(SplashFTFontEngine *engineA,
 				   SplashFontFileID *idA,
-				   SplashFontSrc *src,
+				   SplashFontSrc *srcA,
 				   FT_Face faceA,
 				   int *codeToGIDA, int codeToGIDLenA,
-				   GBool trueTypeA, GBool type1A):
-  SplashFontFile(idA, src)
+				   bool trueTypeA, bool type1A):
+  SplashFontFile(idA, srcA)
 {
   engine = engineA;
   face = faceA;
@@ -129,12 +133,10 @@ SplashFTFontFile::~SplashFTFontFile() {
 }
 
 SplashFont *SplashFTFontFile::makeFont(SplashCoord *mat,
-				       SplashCoord *textMat) {
+				       const SplashCoord *textMat) {
   SplashFont *font;
 
   font = new SplashFTFont(this, mat, textMat);
   font->initCache();
   return font;
 }
-
-#endif // HAVE_FREETYPE_FREETYPE_H || HAVE_FREETYPE_H

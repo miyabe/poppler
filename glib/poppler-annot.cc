@@ -2,6 +2,7 @@
  *
  * Copyright (C) 2007 Inigo Martinez <inigomartinez@gmail.com>
  * Copyright (C) 2009 Carlos Garcia Campos <carlosgc@gnome.org>
+ * Copyright (C) 2013 German Poo-Caamano <gpoo@gnome.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -32,9 +33,13 @@ typedef struct _PopplerAnnotClass               PopplerAnnotClass;
 typedef struct _PopplerAnnotMarkupClass         PopplerAnnotMarkupClass;
 typedef struct _PopplerAnnotFreeTextClass       PopplerAnnotFreeTextClass;
 typedef struct _PopplerAnnotTextClass           PopplerAnnotTextClass;
+typedef struct _PopplerAnnotTextMarkupClass     PopplerAnnotTextMarkupClass;
 typedef struct _PopplerAnnotFileAttachmentClass PopplerAnnotFileAttachmentClass;
 typedef struct _PopplerAnnotMovieClass          PopplerAnnotMovieClass;
 typedef struct _PopplerAnnotScreenClass         PopplerAnnotScreenClass;
+typedef struct _PopplerAnnotLineClass           PopplerAnnotLineClass;
+typedef struct _PopplerAnnotCircleClass         PopplerAnnotCircleClass;
+typedef struct _PopplerAnnotSquareClass         PopplerAnnotSquareClass;
 
 struct _PopplerAnnotClass
 {
@@ -57,6 +62,16 @@ struct _PopplerAnnotText
 };
 
 struct _PopplerAnnotTextClass
+{
+  PopplerAnnotMarkupClass parent_class;
+};
+
+struct _PopplerAnnotTextMarkup
+{
+  PopplerAnnotMarkup parent_instance;
+};
+
+struct _PopplerAnnotTextMarkupClass
 {
   PopplerAnnotMarkupClass parent_class;
 };
@@ -105,21 +120,54 @@ struct _PopplerAnnotScreenClass
   PopplerAnnotClass parent_class;
 };
 
+struct _PopplerAnnotLine
+{
+  PopplerAnnotMarkup parent_instance;
+};
+
+struct _PopplerAnnotLineClass
+{
+  PopplerAnnotMarkupClass parent_class;
+};
+
+struct _PopplerAnnotCircle
+{
+  PopplerAnnotMarkup parent_instance;
+};
+
+struct _PopplerAnnotCircleClass
+{
+  PopplerAnnotMarkupClass parent_class;
+};
+
+struct _PopplerAnnotSquare
+{
+  PopplerAnnotMarkup parent_instance;
+};
+
+struct _PopplerAnnotSquareClass
+{
+  PopplerAnnotMarkupClass parent_class;
+};
 
 G_DEFINE_TYPE (PopplerAnnot, poppler_annot, G_TYPE_OBJECT)
 G_DEFINE_TYPE (PopplerAnnotMarkup, poppler_annot_markup, POPPLER_TYPE_ANNOT)
+G_DEFINE_TYPE (PopplerAnnotTextMarkup, poppler_annot_text_markup, POPPLER_TYPE_ANNOT_MARKUP)
 G_DEFINE_TYPE (PopplerAnnotText, poppler_annot_text, POPPLER_TYPE_ANNOT_MARKUP)
 G_DEFINE_TYPE (PopplerAnnotFreeText, poppler_annot_free_text, POPPLER_TYPE_ANNOT_MARKUP)
 G_DEFINE_TYPE (PopplerAnnotFileAttachment, poppler_annot_file_attachment, POPPLER_TYPE_ANNOT_MARKUP)
 G_DEFINE_TYPE (PopplerAnnotMovie, poppler_annot_movie, POPPLER_TYPE_ANNOT)
 G_DEFINE_TYPE (PopplerAnnotScreen, poppler_annot_screen, POPPLER_TYPE_ANNOT)
+G_DEFINE_TYPE (PopplerAnnotLine, poppler_annot_line, POPPLER_TYPE_ANNOT_MARKUP)
+G_DEFINE_TYPE (PopplerAnnotCircle, poppler_annot_circle, POPPLER_TYPE_ANNOT_MARKUP)
+G_DEFINE_TYPE (PopplerAnnotSquare, poppler_annot_square, POPPLER_TYPE_ANNOT_MARKUP)
 
 static PopplerAnnot *
 _poppler_create_annot (GType annot_type, Annot *annot)
 {
   PopplerAnnot *poppler_annot;
 
-  poppler_annot = POPPLER_ANNOT (g_object_new (annot_type, NULL));
+  poppler_annot = POPPLER_ANNOT (g_object_new (annot_type, nullptr));
   poppler_annot->annot = annot;
   annot->incRefCnt();
 
@@ -133,7 +181,7 @@ poppler_annot_finalize (GObject *object)
 
   if (poppler_annot->annot) {
     poppler_annot->annot->decRefCnt();
-    poppler_annot->annot = NULL;
+    poppler_annot->annot = nullptr;
   }
 
   G_OBJECT_CLASS (poppler_annot_parent_class)->finalize (object);
@@ -210,6 +258,203 @@ poppler_annot_text_new (PopplerDocument  *doc,
   return _poppler_annot_text_new (annot);
 }
 
+PopplerAnnot *
+_poppler_annot_text_markup_new (Annot *annot)
+{
+  return _poppler_create_annot (POPPLER_TYPE_ANNOT_TEXT_MARKUP, annot);
+}
+
+static AnnotQuadrilaterals *
+create_annot_quads_from_poppler_quads (GArray *quads)
+{
+  g_assert (quads->len > 0);
+
+  auto quads_array = std::make_unique<AnnotQuadrilaterals::AnnotQuadrilateral[]>(quads->len);
+  for (guint i = 0; i < quads->len; i++) {
+    PopplerQuadrilateral *quadrilateral = &g_array_index (quads, PopplerQuadrilateral, i);
+
+    quads_array[i] = AnnotQuadrilaterals::AnnotQuadrilateral (
+      quadrilateral->p1.x, quadrilateral->p1.y,
+      quadrilateral->p2.x, quadrilateral->p2.y,
+      quadrilateral->p3.x, quadrilateral->p3.y,
+      quadrilateral->p4.x, quadrilateral->p4.y);
+  }
+
+  return new AnnotQuadrilaterals (std::move(quads_array), quads->len);
+}
+
+static GArray *
+create_poppler_quads_from_annot_quads (AnnotQuadrilaterals *quads_array)
+{
+  GArray *quads;
+  guint   quads_len;
+
+  quads_len = quads_array->getQuadrilateralsLength();
+  quads = g_array_sized_new (FALSE, FALSE,
+                             sizeof (PopplerQuadrilateral),
+                             quads_len);
+  g_array_set_size (quads, quads_len);
+
+  for (guint i = 0; i < quads_len; ++i) {
+    PopplerQuadrilateral *quadrilateral = &g_array_index (quads, PopplerQuadrilateral, i);
+
+    quadrilateral->p1.x = quads_array->getX1(i);
+    quadrilateral->p1.y = quads_array->getY1(i);
+    quadrilateral->p2.x = quads_array->getX2(i);
+    quadrilateral->p2.y = quads_array->getY2(i);
+    quadrilateral->p3.x = quads_array->getX3(i);
+    quadrilateral->p3.y = quads_array->getY3(i);
+    quadrilateral->p4.x = quads_array->getX4(i);
+    quadrilateral->p4.y = quads_array->getY4(i);
+  }
+
+  return quads;
+}
+
+static void
+poppler_annot_text_markup_init (PopplerAnnotTextMarkup *poppler_annot)
+{
+}
+
+static void
+poppler_annot_text_markup_class_init (PopplerAnnotTextMarkupClass *klass)
+{
+}
+
+/**
+ * poppler_annot_text_markup_new_highlight:
+ * @doc: a #PopplerDocument
+ * @rect: a #PopplerRectangle
+ * @quadrilaterals: (element-type PopplerQuadrilateral): A #GArray of
+ *   #PopplerQuadrilateral<!-- -->s
+ *
+ * Creates a new Highlight Text annotation that will be
+ * located on @rect when added to a page. See poppler_page_add_annot()
+ *
+ * Return value: (transfer full): A newly created #PopplerAnnotTextMarkup annotation
+ *
+ * Since: 0.26
+ */
+PopplerAnnot *
+poppler_annot_text_markup_new_highlight (PopplerDocument  *doc,
+                                         PopplerRectangle *rect,
+                                         GArray           *quadrilaterals)
+{
+  PopplerAnnot *poppler_annot;
+  AnnotTextMarkup *annot;
+  PDFRectangle pdf_rect(rect->x1, rect->y1,
+			rect->x2, rect->y2);
+
+  annot = new AnnotTextMarkup (doc->doc, &pdf_rect, Annot::typeHighlight);
+
+  poppler_annot = _poppler_annot_text_markup_new (annot);
+  poppler_annot_text_markup_set_quadrilaterals (POPPLER_ANNOT_TEXT_MARKUP (poppler_annot),
+                                                quadrilaterals);
+  return poppler_annot;
+}
+
+/**
+ * poppler_annot_text_markup_new_squiggly:
+ * @doc: a #PopplerDocument
+ * @rect: a #PopplerRectangle
+ * @quadrilaterals: (element-type PopplerQuadrilateral): A #GArray of
+ *   #PopplerQuadrilateral<!-- -->s
+ *
+ * Creates a new Squiggly Text annotation that will be
+ * located on @rect when added to a page. See poppler_page_add_annot()
+ *
+ * Return value: (transfer full): A newly created #PopplerAnnotTextMarkup annotation
+ *
+ * Since: 0.26
+ */
+PopplerAnnot *
+poppler_annot_text_markup_new_squiggly (PopplerDocument  *doc,
+                                        PopplerRectangle *rect,
+                                        GArray           *quadrilaterals)
+{
+  PopplerAnnot *poppler_annot;
+  AnnotTextMarkup *annot;
+  PDFRectangle pdf_rect(rect->x1, rect->y1,
+			rect->x2, rect->y2);
+
+  g_return_val_if_fail (quadrilaterals != nullptr && quadrilaterals->len > 0, NULL);
+
+  annot = new AnnotTextMarkup (doc->doc, &pdf_rect, Annot::typeSquiggly);
+
+  poppler_annot = _poppler_annot_text_markup_new (annot);
+  poppler_annot_text_markup_set_quadrilaterals (POPPLER_ANNOT_TEXT_MARKUP (poppler_annot),
+                                                quadrilaterals);
+  return poppler_annot;
+}
+
+/**
+ * poppler_annot_text_markup_new_strikeout:
+ * @doc: a #PopplerDocument
+ * @rect: a #PopplerRectangle
+ * @quadrilaterals: (element-type PopplerQuadrilateral): A #GArray of
+ *   #PopplerQuadrilateral<!-- -->s
+ *
+ * Creates a new Strike Out Text annotation that will be
+ * located on @rect when added to a page. See poppler_page_add_annot()
+ *
+ * Return value: (transfer full): A newly created #PopplerAnnotTextMarkup annotation
+ *
+ * Since: 0.26
+ */
+PopplerAnnot *
+poppler_annot_text_markup_new_strikeout (PopplerDocument  *doc,
+                                         PopplerRectangle *rect,
+                                         GArray           *quadrilaterals)
+{
+  PopplerAnnot *poppler_annot;
+  AnnotTextMarkup *annot;
+  PDFRectangle pdf_rect(rect->x1, rect->y1,
+			rect->x2, rect->y2);
+
+  g_return_val_if_fail (quadrilaterals != nullptr && quadrilaterals->len > 0, NULL);
+
+  annot = new AnnotTextMarkup (doc->doc, &pdf_rect, Annot::typeStrikeOut);
+
+  poppler_annot = _poppler_annot_text_markup_new (annot);
+  poppler_annot_text_markup_set_quadrilaterals (POPPLER_ANNOT_TEXT_MARKUP (poppler_annot),
+                                                quadrilaterals);
+  return poppler_annot;
+}
+
+/**
+ * poppler_annot_text_markup_new_underline:
+ * @doc: a #PopplerDocument
+ * @rect: a #PopplerRectangle
+ * @quadrilaterals: (element-type PopplerQuadrilateral): A #GArray of
+ *   #PopplerQuadrilateral<!-- -->s
+ *
+ * Creates a new Underline Text annotation that will be
+ * located on @rect when added to a page. See poppler_page_add_annot()
+ *
+ * Return value: (transfer full): A newly created #PopplerAnnotTextMarkup annotation
+ *
+ * Since: 0.26
+ */
+PopplerAnnot *
+poppler_annot_text_markup_new_underline (PopplerDocument  *doc,
+                                         PopplerRectangle *rect,
+                                         GArray           *quadrilaterals)
+{
+  PopplerAnnot *poppler_annot;
+  AnnotTextMarkup *annot;
+  PDFRectangle pdf_rect(rect->x1, rect->y1,
+			rect->x2, rect->y2);
+
+  g_return_val_if_fail (quadrilaterals != nullptr && quadrilaterals->len > 0, NULL);
+
+  annot = new AnnotTextMarkup (doc->doc, &pdf_rect, Annot::typeUnderline);
+
+  poppler_annot = _poppler_annot_text_markup_new (annot);
+  poppler_annot_text_markup_set_quadrilaterals (POPPLER_ANNOT_TEXT_MARKUP (poppler_annot),
+                                                quadrilaterals);
+  return poppler_annot;
+}
+
 static void
 poppler_annot_free_text_init (PopplerAnnotFreeText *poppler_annot)
 {
@@ -250,7 +495,7 @@ poppler_annot_movie_finalize (GObject *object)
 
   if (annot_movie->movie) {
     g_object_unref (annot_movie->movie);
-    annot_movie->movie = NULL;
+    annot_movie->movie = nullptr;
   }
 
   G_OBJECT_CLASS (poppler_annot_movie_parent_class)->finalize (object);
@@ -289,7 +534,7 @@ poppler_annot_screen_finalize (GObject *object)
 
   if (annot_screen->action) {
     poppler_action_free (annot_screen->action);
-    annot_screen->action = NULL;
+    annot_screen->action = nullptr;
   }
 
   G_OBJECT_CLASS (poppler_annot_screen_parent_class)->finalize (object);
@@ -309,7 +554,7 @@ poppler_annot_screen_class_init (PopplerAnnotScreenClass *klass)
 }
 
 PopplerAnnot *
-_poppler_annot_screen_new (Annot *annot)
+_poppler_annot_screen_new (PopplerDocument *doc, Annot *annot)
 {
   PopplerAnnot *poppler_annot;
   AnnotScreen  *annot_screen;
@@ -319,11 +564,144 @@ _poppler_annot_screen_new (Annot *annot)
   annot_screen = static_cast<AnnotScreen *>(poppler_annot->annot);
   action = annot_screen->getAction();
   if (action)
-    POPPLER_ANNOT_SCREEN (poppler_annot)->action = _poppler_action_new (NULL, action, NULL);
+    POPPLER_ANNOT_SCREEN (poppler_annot)->action = _poppler_action_new (doc, action, nullptr);
 
   return poppler_annot;
 }
 
+PopplerAnnot *
+_poppler_annot_line_new (Annot *annot)
+{
+  return _poppler_create_annot (POPPLER_TYPE_ANNOT_LINE, annot);
+}
+
+static void
+poppler_annot_line_init (PopplerAnnotLine *poppler_annot)
+{
+}
+
+static void
+poppler_annot_line_class_init (PopplerAnnotLineClass *klass)
+{
+}
+
+/**
+ * poppler_annot_line_new:
+ * @doc: a #PopplerDocument
+ * @rect: a #PopplerRectangle
+ * @start: a #PopplerPoint of the starting vertice
+ * @end: a #PopplerPoint of the ending vertice
+ *
+ * Creates a new Line annotation that will be
+ * located on @rect when added to a page. See
+ * poppler_page_add_annot()
+ *
+ * Return value: A newly created #PopplerAnnotLine annotation
+ *
+ * Since: 0.26
+ */
+PopplerAnnot *
+poppler_annot_line_new (PopplerDocument  *doc,
+			PopplerRectangle *rect,
+                        PopplerPoint     *start,
+                        PopplerPoint     *end)
+{
+  PopplerAnnot *poppler_annot;
+  Annot *annot;
+  PDFRectangle pdf_rect(rect->x1, rect->y1,
+			rect->x2, rect->y2);
+
+  annot = new AnnotLine (doc->doc, &pdf_rect);
+
+  poppler_annot = _poppler_annot_line_new (annot);
+  poppler_annot_line_set_vertices (POPPLER_ANNOT_LINE (poppler_annot),
+                                   start, end);
+  return poppler_annot;
+}
+
+PopplerAnnot *
+_poppler_annot_circle_new (Annot *annot)
+{
+  return _poppler_create_annot (POPPLER_TYPE_ANNOT_CIRCLE, annot);
+}
+
+static void
+poppler_annot_circle_init (PopplerAnnotCircle *poppler_annot)
+{
+}
+
+static void
+poppler_annot_circle_class_init (PopplerAnnotCircleClass *klass)
+{
+}
+
+/**
+ * poppler_annot_circle_new:
+ * @doc: a #PopplerDocument
+ * @rect: a #PopplerRectangle
+ *
+ * Creates a new Circle annotation that will be
+ * located on @rect when added to a page. See
+ * poppler_page_add_annot()
+ *
+ * Return value: a newly created #PopplerAnnotCircle annotation
+ *
+ * Since: 0.26
+ **/
+PopplerAnnot *
+poppler_annot_circle_new (PopplerDocument  *doc,
+			  PopplerRectangle *rect)
+{
+  Annot *annot;
+  PDFRectangle pdf_rect(rect->x1, rect->y1,
+			rect->x2, rect->y2);
+
+  annot = new AnnotGeometry (doc->doc, &pdf_rect, Annot::typeCircle);
+
+  return _poppler_annot_circle_new (annot);
+}
+
+PopplerAnnot *
+_poppler_annot_square_new (Annot *annot)
+{
+  return _poppler_create_annot (POPPLER_TYPE_ANNOT_SQUARE, annot);
+}
+
+static void
+poppler_annot_square_init (PopplerAnnotSquare *poppler_annot)
+{
+}
+
+static void
+poppler_annot_square_class_init (PopplerAnnotSquareClass *klass)
+{
+}
+
+/**
+ * poppler_annot_square_new:
+ * @doc: a #PopplerDocument
+ * @rect: a #PopplerRectangle
+ *
+ * Creates a new Square annotation that will be
+ * located on @rect when added to a page. See
+ * poppler_page_add_annot()
+ *
+ * Return value: a newly created #PopplerAnnotSquare annotation
+ *
+ * Since: 0.26
+**/
+PopplerAnnot *
+poppler_annot_square_new (PopplerDocument  *doc,
+			  PopplerRectangle *rect)
+{
+  Annot *annot;
+  PDFRectangle pdf_rect(rect->x1, rect->y1,
+			rect->x2, rect->y2);
+
+  annot = new AnnotGeometry (doc->doc, &pdf_rect, Annot::typeSquare);
+
+  return _poppler_annot_square_new (annot);
+}
 
 /* Public methods */
 /**
@@ -410,13 +788,13 @@ poppler_annot_get_annot_type (PopplerAnnot *poppler_annot)
 gchar *
 poppler_annot_get_contents (PopplerAnnot *poppler_annot)
 {
-  GooString *contents;
+  const GooString *contents;
 
   g_return_val_if_fail (POPPLER_IS_ANNOT (poppler_annot), NULL);
 
   contents = poppler_annot->annot->getContents ();
 
-  return contents ? _poppler_goo_string_to_utf8 (contents) : NULL;
+  return contents && contents->getLength() > 0 ? _poppler_goo_string_to_utf8 (contents) : nullptr;
 }
 
 /**
@@ -439,7 +817,7 @@ poppler_annot_set_contents (PopplerAnnot *poppler_annot,
   
   g_return_if_fail (POPPLER_IS_ANNOT (poppler_annot));
 
-  tmp = contents ? g_convert (contents, -1, "UTF-16BE", "UTF-8", NULL, &length, NULL) : NULL;
+  tmp = contents ? g_convert (contents, -1, "UTF-16BE", "UTF-8", nullptr, &length, nullptr) : nullptr;
   goo_tmp = new GooString (tmp, length);
   g_free (tmp);
   poppler_annot->annot->setContents (goo_tmp);
@@ -458,13 +836,13 @@ poppler_annot_set_contents (PopplerAnnot *poppler_annot,
 gchar *
 poppler_annot_get_name (PopplerAnnot *poppler_annot)
 {
-  GooString *name;
+  const GooString *name;
 
   g_return_val_if_fail (POPPLER_IS_ANNOT (poppler_annot), NULL);
 
   name = poppler_annot->annot->getName ();
 
-  return name ? _poppler_goo_string_to_utf8 (name) : NULL;
+  return name ? _poppler_goo_string_to_utf8 (name) : nullptr;
 }
 
 /**
@@ -481,17 +859,17 @@ poppler_annot_get_name (PopplerAnnot *poppler_annot)
 gchar *
 poppler_annot_get_modified (PopplerAnnot *poppler_annot)
 {
-  GooString *text;
+  const GooString *text;
 
   g_return_val_if_fail (POPPLER_IS_ANNOT (poppler_annot), NULL);
 
   text = poppler_annot->annot->getModified ();
 
-  return text ? _poppler_goo_string_to_utf8 (text) : NULL;
+  return text ? _poppler_goo_string_to_utf8 (text) : nullptr;
 }
 
 /**
- * poppler_annot_get_flags
+ * poppler_annot_get_flags:
  * @poppler_annot: a #PopplerAnnot
  *
  * Retrieves the flag field specifying various characteristics of the
@@ -508,23 +886,30 @@ poppler_annot_get_flags (PopplerAnnot *poppler_annot)
 }
 
 /**
- * poppler_annot_get_color:
+ * poppler_annot_set_flags:
  * @poppler_annot: a #PopplerAnnot
+ * @flags: a #PopplerAnnotFlag
  *
- * Retrieves the color of @poppler_annot.
+ * Sets the flag field specifying various characteristics of the
+ * @poppler_annot.
  *
- * Return value: a new allocated #PopplerColor with the color values of
- *               @poppler_annot, or %NULL. It must be freed with g_free() when done.
+ * Since: 0.22
  **/
-PopplerColor *
-poppler_annot_get_color (PopplerAnnot *poppler_annot)
+void
+poppler_annot_set_flags (PopplerAnnot *poppler_annot, PopplerAnnotFlag flags)
 {
-  AnnotColor *color;
-  PopplerColor *poppler_color = NULL;
+  g_return_if_fail (POPPLER_IS_ANNOT (poppler_annot));
 
-  g_return_val_if_fail (POPPLER_IS_ANNOT (poppler_annot), NULL);
+  if (poppler_annot_get_flags (poppler_annot) == flags)
+    return;
 
-  color = poppler_annot->annot->getColor ();
+  poppler_annot->annot->setFlags ((guint) flags);
+}
+
+static PopplerColor *
+create_poppler_color_from_annot_color (AnnotColor *color)
+{
+  PopplerColor *poppler_color = nullptr;
 
   if (color) {
     const double *values = color->getValues ();
@@ -557,6 +942,34 @@ poppler_annot_get_color (PopplerAnnot *poppler_annot)
   return poppler_color;
 }
 
+static std::unique_ptr<AnnotColor>
+create_annot_color_from_poppler_color (PopplerColor *poppler_color)
+{
+  if (!poppler_color)
+    return nullptr;
+
+  return std::make_unique<AnnotColor>((double)poppler_color->red / 65535,
+                                      (double)poppler_color->green / 65535,
+                                      (double)poppler_color->blue / 65535);
+}
+
+/**
+ * poppler_annot_get_color:
+ * @poppler_annot: a #PopplerAnnot
+ *
+ * Retrieves the color of @poppler_annot.
+ *
+ * Return value: a new allocated #PopplerColor with the color values of
+ *               @poppler_annot, or %NULL. It must be freed with g_free() when done.
+ **/
+PopplerColor *
+poppler_annot_get_color (PopplerAnnot *poppler_annot)
+{
+  g_return_val_if_fail (POPPLER_IS_ANNOT (poppler_annot), NULL);
+
+  return create_poppler_color_from_annot_color (poppler_annot->annot->getColor ());
+}
+
 /**
  * poppler_annot_set_color:
  * @poppler_annot: a #PopplerAnnot
@@ -570,16 +983,7 @@ void
 poppler_annot_set_color (PopplerAnnot *poppler_annot,
 			 PopplerColor *poppler_color)
 {
-  AnnotColor *color = NULL;
-
-  if (poppler_color) {
-    color = new AnnotColor ((double)poppler_color->red / 65535,
-			    (double)poppler_color->green / 65535,
-			    (double)poppler_color->blue / 65535);
-  }
-
-  /* Annot takes ownership of the color */
-  poppler_annot->annot->setColor (color);
+  poppler_annot->annot->setColor (create_annot_color_from_poppler_color (poppler_color));
 }
 
 /**
@@ -603,6 +1007,53 @@ poppler_annot_get_page_index (PopplerAnnot *poppler_annot)
   return page_num <= 0 ? -1 : page_num - 1;
 }
 
+/**
+ * poppler_annot_get_rectangle:
+ * @poppler_annot: a #PopplerAnnot
+ * @poppler_rect: (out): a #PopplerRectangle to store the annotation's coordinates
+ *
+ * Retrieves the rectangle representing the page coordinates where the
+ * annotation @poppler_annot is placed.
+ *
+ * Since: 0.26
+ */
+void
+poppler_annot_get_rectangle (PopplerAnnot     *poppler_annot,
+                             PopplerRectangle *poppler_rect)
+{
+  PDFRectangle *annot_rect;
+
+  g_return_if_fail (POPPLER_IS_ANNOT (poppler_annot));
+  g_return_if_fail (poppler_rect != nullptr);
+
+  annot_rect = poppler_annot->annot->getRect ();
+  poppler_rect->x1 = annot_rect->x1;
+  poppler_rect->x2 = annot_rect->x2;
+  poppler_rect->y1 = annot_rect->y1;
+  poppler_rect->y2 = annot_rect->y2;
+}
+
+/**
+ * poppler_annot_set_rectangle:
+ * @poppler_annot: a #PopplerAnnot
+ * @poppler_rect: a #PopplerRectangle with the new annotation's coordinates
+ *
+ * Move the annotation to the rectangle representing the page coordinates
+ * where the annotation @poppler_annot should be placed.
+ *
+ * Since: 0.26
+ */
+void
+poppler_annot_set_rectangle (PopplerAnnot     *poppler_annot,
+                             PopplerRectangle *poppler_rect)
+{
+  g_return_if_fail (POPPLER_IS_ANNOT (poppler_annot));
+  g_return_if_fail (poppler_rect != nullptr);
+
+  poppler_annot->annot->setRect (poppler_rect->x1, poppler_rect->y1,
+                                 poppler_rect->x2, poppler_rect->y2);
+}
+
 /* PopplerAnnotMarkup */
 /**
  * poppler_annot_markup_get_label:
@@ -616,7 +1067,7 @@ gchar *
 poppler_annot_markup_get_label (PopplerAnnotMarkup *poppler_annot)
 {
   AnnotMarkup *annot;
-  GooString *text;
+  const GooString *text;
 
   g_return_val_if_fail (POPPLER_IS_ANNOT_MARKUP (poppler_annot), NULL);
 
@@ -624,7 +1075,7 @@ poppler_annot_markup_get_label (PopplerAnnotMarkup *poppler_annot)
 
   text = annot->getLabel ();
 
-  return text ? _poppler_goo_string_to_utf8 (text) : NULL;
+  return text ? _poppler_goo_string_to_utf8 (text) : nullptr;
 }
 
 /**
@@ -649,7 +1100,7 @@ poppler_annot_markup_set_label (PopplerAnnotMarkup *poppler_annot,
 
   annot = static_cast<AnnotMarkup *>(POPPLER_ANNOT (poppler_annot)->annot);
 
-  tmp = label ? g_convert (label, -1, "UTF-16BE", "UTF-8", NULL, &length, NULL) : NULL;
+  tmp = label ? g_convert (label, -1, "UTF-16BE", "UTF-8", nullptr, &length, nullptr) : nullptr;
   goo_tmp = new GooString (tmp, length);
   g_free (tmp);
   annot->setLabel (goo_tmp);
@@ -675,7 +1126,7 @@ poppler_annot_markup_has_popup (PopplerAnnotMarkup *poppler_annot)
 
   annot = static_cast<AnnotMarkup *>(POPPLER_ANNOT (poppler_annot)->annot);
 
-  return annot->getPopup () != NULL;
+  return annot->getPopup () != nullptr;
 }
 
 /**
@@ -693,15 +1144,13 @@ poppler_annot_markup_set_popup (PopplerAnnotMarkup *poppler_annot,
 				PopplerRectangle   *popup_rect)
 {
   AnnotMarkup *annot;
-  AnnotPopup  *popup;
   PDFRectangle pdf_rect(popup_rect->x1, popup_rect->y1,
 			popup_rect->x2, popup_rect->y2);
 
   g_return_if_fail (POPPLER_IS_ANNOT_MARKUP (poppler_annot));
 
   annot = static_cast<AnnotMarkup *>(POPPLER_ANNOT (poppler_annot)->annot);
-  popup = new AnnotPopup (annot->getDoc(), &pdf_rect);
-  annot->setPopup (popup);
+  annot->setPopup (std::make_unique<AnnotPopup>(annot->getDoc(), &pdf_rect));
 }
 
 /**
@@ -777,7 +1226,7 @@ poppler_annot_markup_get_popup_rectangle (PopplerAnnotMarkup *poppler_annot,
   PDFRectangle *annot_rect;
 
   g_return_val_if_fail (POPPLER_IS_ANNOT_MARKUP (poppler_annot), FALSE);
-  g_return_val_if_fail (poppler_rect != NULL, FALSE);
+  g_return_val_if_fail (poppler_rect != nullptr, FALSE);
 
   annot = static_cast<AnnotMarkup *>(POPPLER_ANNOT (poppler_annot)->annot);
   annot_popup = annot->getPopup ();
@@ -791,6 +1240,37 @@ poppler_annot_markup_get_popup_rectangle (PopplerAnnotMarkup *poppler_annot,
   poppler_rect->y2 = annot_rect->y2;
 
   return TRUE;
+}
+
+/**
+ * poppler_annot_markup_set_popup_rectangle:
+ * @poppler_annot: a #PopplerAnnotMarkup
+ * @poppler_rect: a #PopplerRectangle to set
+ *
+ * Sets the rectangle of the popup window related to @poppler_annot.
+ * This doesn't have any effect if @poppler_annot doesn't have a
+ * popup associated, use poppler_annot_markup_set_popup() to associate
+ * a popup window to a #PopplerAnnotMarkup.
+ *
+ * Since: 0.33
+ */
+void
+poppler_annot_markup_set_popup_rectangle (PopplerAnnotMarkup *poppler_annot,
+                                          PopplerRectangle   *poppler_rect)
+{
+        AnnotMarkup *annot;
+        Annot *annot_popup;
+
+        g_return_if_fail (POPPLER_IS_ANNOT_MARKUP (poppler_annot));
+        g_return_if_fail (poppler_rect != nullptr);
+
+        annot = static_cast<AnnotMarkup *>(POPPLER_ANNOT (poppler_annot)->annot);
+        annot_popup = annot->getPopup ();
+        if (!annot_popup)
+                return;
+
+        annot_popup->setRect (poppler_rect->x1, poppler_rect->y1,
+                              poppler_rect->x2, poppler_rect->y2);
 }
 
 /**
@@ -850,7 +1330,7 @@ GDate *
 poppler_annot_markup_get_date (PopplerAnnotMarkup *poppler_annot)
 {
   AnnotMarkup *annot;
-  GooString *annot_date;
+  const GooString *annot_date;
   time_t timet;
 
   g_return_val_if_fail (POPPLER_IS_ANNOT_MARKUP (poppler_annot), NULL);
@@ -858,7 +1338,7 @@ poppler_annot_markup_get_date (PopplerAnnotMarkup *poppler_annot)
   annot = static_cast<AnnotMarkup *>(POPPLER_ANNOT (poppler_annot)->annot);
   annot_date = annot->getDate ();
   if (!annot_date)
-    return NULL;
+    return nullptr;
 
   if (_poppler_convert_pdf_date_to_gtime (annot_date, &timet)) {
     GDate *date;
@@ -869,7 +1349,7 @@ poppler_annot_markup_get_date (PopplerAnnotMarkup *poppler_annot)
     return date;
   }
 
-  return NULL;
+  return nullptr;
 }
 
 /**
@@ -884,7 +1364,7 @@ gchar *
 poppler_annot_markup_get_subject (PopplerAnnotMarkup *poppler_annot)
 {
   AnnotMarkup *annot;
-  GooString *text;
+  const GooString *text;
 
   g_return_val_if_fail (POPPLER_IS_ANNOT_MARKUP (poppler_annot), NULL);
 
@@ -892,7 +1372,7 @@ poppler_annot_markup_get_subject (PopplerAnnotMarkup *poppler_annot)
 
   text = annot->getSubject ();
 
-  return text ? _poppler_goo_string_to_utf8 (text) : NULL;
+  return text ? _poppler_goo_string_to_utf8 (text) : nullptr;
 }
 
 /**
@@ -1010,7 +1490,7 @@ gchar *
 poppler_annot_text_get_icon (PopplerAnnotText *poppler_annot)
 {
   AnnotText *annot;
-  GooString *text;
+  const GooString *text;
 
   g_return_val_if_fail (POPPLER_IS_ANNOT_TEXT (poppler_annot), NULL);
 
@@ -1018,7 +1498,7 @@ poppler_annot_text_get_icon (PopplerAnnotText *poppler_annot)
 
   text = annot->getIcon ();
 
-  return text ? _poppler_goo_string_to_utf8 (text) : NULL;
+  return text ? _poppler_goo_string_to_utf8 (text) : nullptr;
 }
 
 /**
@@ -1118,6 +1598,56 @@ poppler_annot_text_get_state (PopplerAnnotText *poppler_annot)
   return POPPLER_ANNOT_TEXT_STATE_UNKNOWN;
 }
 
+/* PopplerAnnotTextMarkup */
+/**
+ * poppler_annot_text_markup_set_quadrilaterals:
+ * @poppler_annot: A #PopplerAnnotTextMarkup
+ * @quadrilaterals: (element-type PopplerQuadrilateral): A #GArray of
+ *   #PopplerQuadrilateral<!-- -->s
+ *
+ * Set the regions (Quadrilaterals) to apply the text markup in @poppler_annot.
+ *
+ * Since: 0.26
+ **/
+void
+poppler_annot_text_markup_set_quadrilaterals (PopplerAnnotTextMarkup *poppler_annot,
+                                              GArray                 *quadrilaterals)
+{
+  AnnotTextMarkup *annot;
+
+  g_return_if_fail (POPPLER_IS_ANNOT_TEXT_MARKUP (poppler_annot));
+  g_return_if_fail (quadrilaterals != nullptr && quadrilaterals->len > 0);
+
+  annot = static_cast<AnnotTextMarkup *>(POPPLER_ANNOT (poppler_annot)->annot);
+  AnnotQuadrilaterals *quads = create_annot_quads_from_poppler_quads (quadrilaterals);
+  annot->setQuadrilaterals (quads);
+  delete quads;
+}
+
+/**
+ * poppler_annot_text_markup_get_quadrilaterals:
+ * @poppler_annot: A #PopplerAnnotTextMarkup
+ *
+ * Returns a #GArray of #PopplerQuadrilateral items that map from a
+ * location on @page to a #PopplerAnnotTextMarkup.  This array must be freed
+ * when done.
+ *
+ * Return value: (element-type PopplerQuadrilateral) (transfer full): A #GArray of #PopplerQuadrilateral
+ *
+ * Since: 0.26
+ **/
+GArray *
+poppler_annot_text_markup_get_quadrilaterals (PopplerAnnotTextMarkup *poppler_annot)
+{
+  AnnotTextMarkup *annot;
+
+  g_return_val_if_fail (POPPLER_IS_ANNOT_TEXT_MARKUP (poppler_annot), NULL);
+
+  annot = static_cast<AnnotTextMarkup *>(POPPLER_ANNOT (poppler_annot)->annot);
+
+  return create_poppler_quads_from_annot_quads (annot->getQuadrilaterals());
+}
+
 /* PopplerAnnotFreeText */
 /**
  * poppler_annot_free_text_get_quadding:
@@ -1192,7 +1722,7 @@ poppler_annot_free_text_get_callout_line (PopplerAnnotFreeText *poppler_annot)
     return callout;
   }
 
-  return NULL;
+  return nullptr;
 }
 
 /* PopplerAnnotFileAttachment */
@@ -1238,14 +1768,14 @@ gchar *
 poppler_annot_file_attachment_get_name (PopplerAnnotFileAttachment *poppler_annot)
 {
   AnnotFileAttachment *annot;
-  GooString *name;
+  const GooString *name;
 
   g_return_val_if_fail (POPPLER_IS_ANNOT_FILE_ATTACHMENT (poppler_annot), NULL);
 
   annot = static_cast<AnnotFileAttachment *>(POPPLER_ANNOT (poppler_annot)->annot);
   name = annot->getName ();
 
-  return name ? _poppler_goo_string_to_utf8 (name) : NULL;
+  return name ? _poppler_goo_string_to_utf8 (name) : nullptr;
 }
 
 /* PopplerAnnotCalloutLine */
@@ -1281,7 +1811,7 @@ poppler_annot_callout_line_copy (PopplerAnnotCalloutLine *callout)
 {
   PopplerAnnotCalloutLine *new_callout;
 
-  g_return_val_if_fail (callout != NULL, NULL);
+  g_return_val_if_fail (callout != nullptr, NULL);
   
   new_callout = g_new0 (PopplerAnnotCalloutLine, 1);
   *new_callout = *callout;
@@ -1317,7 +1847,7 @@ gchar *
 poppler_annot_movie_get_title (PopplerAnnotMovie *poppler_annot)
 {
   AnnotMovie *annot;
-  GooString *title;
+  const GooString *title;
 
   g_return_val_if_fail (POPPLER_IS_ANNOT_MOVIE (poppler_annot), NULL);
 
@@ -1325,7 +1855,7 @@ poppler_annot_movie_get_title (PopplerAnnotMovie *poppler_annot)
 
   title = annot->getTitle ();
 
-  return title ? _poppler_goo_string_to_utf8 (title) : NULL;
+  return title ? _poppler_goo_string_to_utf8 (title) : nullptr;
 }
 
 /**
@@ -1361,4 +1891,128 @@ PopplerAction *
 poppler_annot_screen_get_action (PopplerAnnotScreen *poppler_annot)
 {
   return poppler_annot->action;
+}
+
+/* PopplerAnnotLine */
+/**
+ * poppler_annot_line_set_vertices:
+ * @poppler_annot: a #PopplerAnnotLine
+ * @start: a #PopplerPoint of the starting vertice
+ * @end: a #PopplerPoint of the ending vertice
+ *
+ * Set the coordinate points where the @poppler_annot starts and ends.
+ *
+ * Since: 0.26
+ */
+void
+poppler_annot_line_set_vertices (PopplerAnnotLine *poppler_annot,
+				 PopplerPoint     *start,
+				 PopplerPoint     *end)
+{
+  AnnotLine *annot;
+
+  g_return_if_fail (POPPLER_IS_ANNOT_LINE (poppler_annot));
+  g_return_if_fail (start != nullptr);
+  g_return_if_fail (end != nullptr);
+
+  annot = static_cast<AnnotLine *>(POPPLER_ANNOT (poppler_annot)->annot);
+  annot->setVertices (start->x, start->y, end->x, end->y);
+}
+
+/* PopplerAnnotCircle and PopplerAnnotSquare helpers */
+static PopplerColor *
+poppler_annot_geometry_get_interior_color (PopplerAnnot *poppler_annot)
+{
+  AnnotGeometry *annot;
+
+  annot = static_cast<AnnotGeometry *>(POPPLER_ANNOT (poppler_annot)->annot);
+
+  return create_poppler_color_from_annot_color (annot->getInteriorColor ());
+}
+
+static void
+poppler_annot_geometry_set_interior_color (PopplerAnnot *poppler_annot,
+					    PopplerColor *poppler_color)
+{
+  AnnotGeometry *annot;
+
+  annot = static_cast<AnnotGeometry *>(POPPLER_ANNOT (poppler_annot)->annot);
+
+  annot->setInteriorColor (create_annot_color_from_poppler_color (poppler_color));
+}
+
+/* PopplerAnnotCircle */
+/**
+ * poppler_annot_circle_get_interior_color:
+ * @poppler_annot: a #PopplerAnnotCircle
+ *
+ * Retrieves the interior color of @poppler_annot.
+ *
+ * Return value: a new allocated #PopplerColor with the color values of
+ *               @poppler_annot, or %NULL. It must be freed with g_free() when done.
+ *
+ * Since: 0.26
+ */
+PopplerColor *
+poppler_annot_circle_get_interior_color (PopplerAnnotCircle *poppler_annot)
+{
+  g_return_val_if_fail (POPPLER_IS_ANNOT_CIRCLE (poppler_annot), NULL);
+
+  return poppler_annot_geometry_get_interior_color (POPPLER_ANNOT (poppler_annot));
+}
+
+/**
+ * poppler_annot_circle_set_interior_color:
+ * @poppler_annot: a #PopplerAnnotCircle
+ * @poppler_color: (allow-none): a #PopplerColor, or %NULL
+ *
+ * Sets the interior color of @poppler_annot.
+ *
+ * Since: 0.26
+ */
+void
+poppler_annot_circle_set_interior_color (PopplerAnnotCircle *poppler_annot,
+					 PopplerColor       *poppler_color)
+{
+  g_return_if_fail (POPPLER_IS_ANNOT_CIRCLE (poppler_annot));
+
+  poppler_annot_geometry_set_interior_color (POPPLER_ANNOT (poppler_annot), poppler_color);
+}
+
+/* PopplerAnnotSquare */
+/**
+ * poppler_annot_square_get_interior_color:
+ * @poppler_annot: a #PopplerAnnotSquare
+ *
+ * Retrieves the interior color of @poppler_annot.
+ *
+ * Return value: a new allocated #PopplerColor with the color values of
+ *               @poppler_annot, or %NULL. It must be freed with g_free() when done.
+ *
+ * Since: 0.26
+ */
+PopplerColor *
+poppler_annot_square_get_interior_color (PopplerAnnotSquare *poppler_annot)
+{
+  g_return_val_if_fail (POPPLER_IS_ANNOT_SQUARE (poppler_annot), NULL);
+
+  return poppler_annot_geometry_get_interior_color (POPPLER_ANNOT (poppler_annot));
+}
+
+/**
+ * poppler_annot_square_set_interior_color:
+ * @poppler_annot: a #PopplerAnnotSquare
+ * @poppler_color: (allow-none): a #PopplerColor, or %NULL
+ *
+ * Sets the interior color of @poppler_annot.
+ *
+ * Since: 0.26
+ */
+void
+poppler_annot_square_set_interior_color (PopplerAnnotSquare *poppler_annot,
+					 PopplerColor       *poppler_color)
+{
+  g_return_if_fail (POPPLER_IS_ANNOT_SQUARE (poppler_annot));
+
+  poppler_annot_geometry_set_interior_color (POPPLER_ANNOT (poppler_annot), poppler_color);
 }

@@ -32,7 +32,7 @@ typedef struct {
 	gint             rotate;
 	GdkRectangle     slice;
 	gboolean         printing;
-	
+
 	GtkWidget       *swindow;
 	GtkWidget       *darea;
 	GtkWidget       *slice_x;
@@ -174,7 +174,7 @@ pgd_render_slice_selector_setup (PgdRenderDemo *demo)
 		return;
 
 	poppler_page_get_size (page, &width, &height);
-	
+
 	gtk_spin_button_set_range (GTK_SPIN_BUTTON (demo->slice_x), 0, width);
 	gtk_spin_button_set_range (GTK_SPIN_BUTTON (demo->slice_y), 0, height);
 	gtk_spin_button_set_range (GTK_SPIN_BUTTON (demo->slice_w), 0, width);
@@ -236,7 +236,7 @@ pgd_render_properties_selector_create (PgdRenderDemo *demo)
 	GtkWidget *scale_hbox, *scale_selector;
 	GtkWidget *rotate_hbox, *rotate_selector;
 	GtkWidget *printing_selector;
-	GtkWidget *slice_hbox, *slice_selector;
+	GtkWidget *slice_hbox;
 	GtkWidget *button;
 	gint       n_pages;
 	gchar     *str;
@@ -427,8 +427,12 @@ pgd_render_create_widget (PopplerDocument *document)
 	demo->swindow = gtk_scrolled_window_new (NULL, NULL);
 	gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (demo->swindow),
 					GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+#if GTK_CHECK_VERSION(3, 7, 8)
+	gtk_container_add (GTK_CONTAINER (demo->swindow), demo->darea);
+#else
 	gtk_scrolled_window_add_with_viewport (GTK_SCROLLED_WINDOW (demo->swindow),
 					       demo->darea);
+#endif
 	gtk_widget_show (demo->darea);
 
 	gtk_box_pack_start (GTK_BOX (vbox), demo->swindow, TRUE, TRUE, 0);

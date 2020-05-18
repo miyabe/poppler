@@ -128,7 +128,6 @@ pgd_selections_update_selection_region (PgdSelectionsDemo *demo)
 static void
 pgd_selections_update_selected_text (PgdSelectionsDemo *demo)
 {
-	GList *region;
 	gchar *text;
 
 	if (demo->selected_region)
@@ -169,7 +168,7 @@ pgd_selections_update_cursor (PgdSelectionsDemo *demo,
 	demo->cursor = cursor_type;
 
 	gdk_window_set_cursor (window, cursor);
-	gdk_flush ();
+	gdk_display_flush (gtk_widget_get_display (demo->darea));
 	if (cursor)
 		g_object_unref (cursor);
 }
@@ -337,9 +336,9 @@ pgd_selections_drawing_area_realize (GtkWidget         *area,
 	g_object_set (area, "has-tooltip", TRUE, NULL);
 
         gtk_style_context_get_color (style_context, GTK_STATE_FLAG_SELECTED, &rgba);
-        gtk_color_button_set_rgba (GTK_COLOR_BUTTON (demo->fg_color_button), &rgba);
-        gtk_style_context_get_background_color (style_context, GTK_STATE_FLAG_SELECTED, &rgba);
-        gtk_color_button_set_rgba (GTK_COLOR_BUTTON (demo->bg_color_button), &rgba);
+	gtk_color_chooser_set_rgba (GTK_COLOR_CHOOSER (demo->fg_color_button), &rgba);
+	gtk_style_context_get (style_context, GTK_STATE_FLAG_SELECTED, "background-color", &rgba, NULL);
+	gtk_color_chooser_set_rgba (GTK_COLOR_CHOOSER (demo->bg_color_button), &rgba);
 }
 
 static gboolean
@@ -458,7 +457,7 @@ pgd_selections_fg_color_changed (GtkColorButton    *button,
 {
 	GdkRGBA color;
 
-	gtk_color_button_get_rgba (GTK_COLOR_BUTTON (button), &color);
+	gtk_color_chooser_get_rgba (GTK_COLOR_CHOOSER (button), &color);
 	demo->glyph_color.red = CLAMP ((guint) (color.red * 65535), 0, 65535);
 	demo->glyph_color.green = CLAMP ((guint) (color.green * 65535), 0, 65535);
 	demo->glyph_color.blue = CLAMP ((guint) (color.blue * 65535), 0, 65535);
@@ -471,7 +470,7 @@ pgd_selections_bg_color_changed (GtkColorButton    *button,
 {
 	GdkRGBA color;
 
-	gtk_color_button_get_rgba (GTK_COLOR_BUTTON (button), &color);
+	gtk_color_chooser_get_rgba (GTK_COLOR_CHOOSER (button), &color);
 	demo->background_color.red = CLAMP ((guint) (color.red * 65535), 0, 65535);
 	demo->background_color.green = CLAMP ((guint) (color.green * 65535), 0, 65535);
 	demo->background_color.blue = CLAMP ((guint) (color.blue * 65535), 0, 65535);
@@ -656,8 +655,12 @@ pgd_selections_create_widget (PopplerDocument *document)
 	demo->swindow = gtk_scrolled_window_new (NULL, NULL);
 	gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (demo->swindow),
 					GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+#if GTK_CHECK_VERSION(3, 7, 8)
+	gtk_container_add(GTK_CONTAINER(demo->swindow), demo->darea);
+#else
 	gtk_scrolled_window_add_with_viewport (GTK_SCROLLED_WINDOW (demo->swindow),
 					       demo->darea);
+#endif
 	gtk_widget_show (demo->darea);
 
 	gtk_box_pack_start (GTK_BOX (vbox), demo->swindow, TRUE, TRUE, 0);

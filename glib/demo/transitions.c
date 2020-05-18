@@ -153,7 +153,7 @@ pgd_transitions_fill_model (PgdTransitionsDemo *demo)
 			gchar      *scale;
 
 			npage = g_strdup_printf ("%d", i + 1);
-			duration = g_strdup_printf ("%d", transition->duration);
+			duration = g_strdup_printf ("%.2f", transition->duration_real);
 			angle = g_strdup_printf ("%d", transition->angle);
 			scale = g_strdup_printf ("%.2f", transition->scale);
 			
@@ -207,7 +207,6 @@ pgd_transitions_create_list (GtkTreeModel *model)
 	
 	treeview = gtk_tree_view_new_with_model (GTK_TREE_MODEL (model));
 	gtk_tree_view_set_headers_visible (GTK_TREE_VIEW (treeview), TRUE);
-	gtk_tree_view_set_rules_hint (GTK_TREE_VIEW (treeview), TRUE);
 	gtk_tree_selection_set_mode (gtk_tree_view_get_selection (GTK_TREE_VIEW (treeview)),
 				     GTK_SELECTION_NONE);
 

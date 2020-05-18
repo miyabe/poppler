@@ -47,13 +47,15 @@ G_BEGIN_DECLS
  * @error and return %FALSE, in which case poppler_attachment_save_to_callback()
  * will fail with the same error.
  *
- * @Returns: %TRUE if successful, %FALSE (with @error set) if failed.
+ * Returns: %TRUE if successful, %FALSE (with @error set) if failed.
  */
 typedef gboolean (*PopplerAttachmentSaveFunc) (const gchar  *buf,
 					       gsize         count,
 					       gpointer      data,
 					       GError      **error);
 
+/* GTime is deprecated, but is part of our ABI here (see #715, #765). */
+G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 struct _PopplerAttachment
 {
   GObject parent;
@@ -65,6 +67,7 @@ struct _PopplerAttachment
   GTime ctime;
   GString *checksum;
 };
+G_GNUC_END_IGNORE_DEPRECATIONS
 
 typedef struct _PopplerAttachmentClass
 {
@@ -72,10 +75,13 @@ typedef struct _PopplerAttachmentClass
 } PopplerAttachmentClass;
 
 
+POPPLER_PUBLIC
 GType     poppler_attachment_get_type         (void) G_GNUC_CONST;
+POPPLER_PUBLIC
 gboolean  poppler_attachment_save             (PopplerAttachment          *attachment,
 					       const char                 *filename,
 					       GError                    **error);
+POPPLER_PUBLIC
 gboolean  poppler_attachment_save_to_callback (PopplerAttachment          *attachment,
 					       PopplerAttachmentSaveFunc   save_func,
 					       gpointer                    user_data,

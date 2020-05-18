@@ -6,13 +6,23 @@
 //
 //========================================================================
 
+//========================================================================
+//
+// Modified under the Poppler project - http://poppler.freedesktop.org
+//
+// All changes made under the Poppler project to this file are licensed
+// under GPL version 2 or later
+//
+// Copyright (C) 2019 Albert Astals Cid <aacid@kde.org>
+//
+// To see a description of the changes please see the Changelog file that
+// came with your tarball or type make ChangeLog if you are building from git
+//
+//========================================================================
+
 #include <config.h>
 
-#ifdef USE_GCC_PRAGMAS
-#pragma implementation
-#endif
-
-#include <string.h>
+#include <cstring>
 #include "goo/gmem.h"
 #include "NameToCharCode.h"
 
@@ -32,7 +42,7 @@ NameToCharCode::NameToCharCode() {
   len = 0;
   tab = (NameToCharCodeEntry *)gmallocn(size, sizeof(NameToCharCodeEntry));
   for (i = 0; i < size; ++i) {
-    tab[i].name = NULL;
+    tab[i].name = nullptr;
   }
 }
 
@@ -58,7 +68,7 @@ void NameToCharCode::add(const char *name, CharCode c) {
     size = 2*size + 1;
     tab = (NameToCharCodeEntry *)gmallocn(size, sizeof(NameToCharCodeEntry));
     for (h = 0; h < size; ++h) {
-      tab[h].name = NULL;
+      tab[h].name = nullptr;
     }
     for (i = 0; i < oldSize; ++i) {
       if (oldTab[i].name) {
@@ -89,7 +99,7 @@ void NameToCharCode::add(const char *name, CharCode c) {
   ++len;
 }
 
-CharCode NameToCharCode::lookup(const char *name) {
+CharCode NameToCharCode::lookup(const char *name) const {
   int h;
 
   h = hash(name);
@@ -104,7 +114,7 @@ CharCode NameToCharCode::lookup(const char *name) {
   return 0;
 }
 
-int NameToCharCode::hash(const char *name) {
+int NameToCharCode::hash(const char *name) const {
   const char *p;
   unsigned int h;
 

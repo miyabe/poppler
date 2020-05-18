@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+from __future__ import absolute_import, division, print_function
 
 import sys
 import argparse
@@ -22,6 +23,8 @@ import commands
 import backends
 import os
 from Config import Config
+
+from multiprocessing import cpu_count
 
 class ListAction(argparse.Action):
     def __call__(self, parser, namespace, values, option_string = None):
@@ -39,6 +42,8 @@ class HelpAction(argparse.Action):
         sys.exit(0)
 
 def main(args):
+    n_cpus = cpu_count()
+
     parser = argparse.ArgumentParser(
         description = 'Poppler regression tests',
         prog = 'poppler-regtest',
@@ -53,7 +58,7 @@ def main(args):
                         action = 'store_true', dest = 'verbose', default = False,
                         help = 'Run in verbose mode')
     parser.add_argument('--utils-dir',
-                        action = 'store', dest = 'utils_dir', default = os.path.abspath("../utils"),
+                        action = 'store', dest = 'utils_dir', default = os.path.abspath("../build/utils"),
                         help = 'Directory of poppler utils used for the tests')
     parser.add_argument('-b', '--backends',
                         action = ListAction, dest = 'backends',
@@ -61,24 +66,34 @@ def main(args):
     parser.add_argument('--skip', metavar = 'FILE',
                         action = 'store', dest = 'skipped_file',
                         help = 'File containing tests to skip')
+    parser.add_argument('-p', '--passwords', metavar = 'FILE',
+                        action = 'store', dest = 'passwords_file',
+                        help = 'File containing the documents passwords')
+    parser.add_argument('-t', '--threads',
+                        action = 'store', dest = 'threads', type = int, default = n_cpus,
+                        help = 'Number of worker threads (Default: %d)' % n_cpus)
 
     ns, args = parser.parse_known_args(args)
     if not args:
         parser.print_help()
         sys.exit(0)
 
-    Config(vars(ns))
+    c = Config(vars(ns))
+
+    if c.threads <= 0:
+        c.threads = n_cpus - c.threads
+
     try:
-        commands.run(args)
+        return commands.run(args)
     except commands.UnknownCommandError:
         sys.stderr.write("Unknown command: %s\n" % (args[0]))
         commands.print_help()
-        sys.exit(1)
+        return 1
     except backends.UnknownBackendError as e:
         sys.stderr.write(str(e) + "\n")
         sys.stdout.write("Backends are: %s\n" % (", ".join([backend.get_name() for backend in backends.get_all_backends()])))
-        sys.exit(1)
+        return 1
 
 if __name__ == '__main__':
     import sys
-    main(sys.argv[1:])
+    sys.exit(main(sys.argv[1:]))

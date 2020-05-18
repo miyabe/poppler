@@ -5,12 +5,13 @@
 // This file is licensed under the GPLv2 or later
 //
 // Copyright 2005 Jeff Muizelaar <jeff@infidigm.net>
-// Copyright 2005-2010, 2012 Albert Astals Cid <aacid@kde.org>
+// Copyright 2005-2010, 2012, 2017 Albert Astals Cid <aacid@kde.org>
 // Copyright 2009 Ryszard Trojnacki <rysiek@menel.com>
 // Copyright 2010 Carlos Garcia Campos <carlosgc@gnome.org>
 // Copyright 2011 Daiki Ueno <ueno@unixuser.org>
 // Copyright 2011 Tomas Hoger <thoger@redhat.com>
-// Copyright 2012 Thomas Freitag <Thomas.Freitag@alfa.de>
+// Copyright 2012, 2013 Thomas Freitag <Thomas.Freitag@alfa.de>
+// Copyright 2017 Adrian Johnson <ajohnson@redneon.com>
 //
 //========================================================================
 
@@ -60,9 +61,16 @@ static void str_term_source(j_decompress_ptr cinfo)
 {
 }
 
-DCTStream::DCTStream(Stream *strA, int colorXformA) :
+DCTStream::DCTStream(Stream *strA, int colorXformA, Dict *dict, int recursion) :
   FilterStream(strA) {
   colorXform = colorXformA;
+  if (dict != nullptr) {
+    Object obj = dict->lookup("Width", recursion);
+    err.width = (obj.isInt() && obj.getInt() <= JPEG_MAX_DIMENSION) ? obj.getInt() : 0;
+    obj = dict->lookup("Height", recursion);
+    err.height = (obj.isInt() && obj.getInt() <= JPEG_MAX_DIMENSION) ? obj.getInt() : 0;
+  } else
+    err.height = err.width = 0;
   init();
 }
 
@@ -74,7 +82,12 @@ DCTStream::~DCTStream() {
 static void exitErrorHandler(jpeg_common_struct *error) {
   j_decompress_ptr cinfo = (j_decompress_ptr)error;
   str_error_mgr * err = (struct str_error_mgr *)cinfo->err;
-  longjmp(err->setjmp_buffer, 1);
+  if (cinfo->err->msg_code == JERR_IMAGE_TOO_BIG && err->width != 0 && err->height != 0) {
+    cinfo->image_height = err->height;
+    cinfo->image_width = err->width;
+  } else {
+    longjmp(err->setjmp_buffer, 1);
+  }
 }
 
 void DCTStream::init()
@@ -87,18 +100,18 @@ void DCTStream::init()
   src.pub.resync_to_restart = jpeg_resync_to_restart;
   src.pub.term_source = str_term_source;
   src.pub.bytes_in_buffer = 0;
-  src.pub.next_input_byte = NULL;
+  src.pub.next_input_byte = nullptr;
   src.str = str;
   src.index = 0;
-  current = NULL;
-  limit = NULL;
+  current = nullptr;
+  limit = nullptr;
   
   cinfo.err = &err.pub;
   if (!setjmp(err.setjmp_buffer)) {
     jpeg_create_decompress(&cinfo);
     cinfo.src = (jpeg_source_mgr *)&src;
   }
-  row_buffer = NULL;
+  row_buffer = nullptr;
 }
 
 void DCTStream::reset() {
@@ -143,40 +156,43 @@ void DCTStream::reset() {
     }
   }
 
-  if (!setjmp(err.setjmp_buffer) && jpeg_read_header(&cinfo, TRUE) != JPEG_SUSPENDED)
+  if (!setjmp(err.setjmp_buffer))
   {
-    // figure out color transform
-    if (colorXform == -1 && !cinfo.saw_Adobe_marker) {
-      if (cinfo.num_components == 3) {
-        if (cinfo.saw_JFIF_marker) {
-	  colorXform = 1;
-        } else if (cinfo.cur_comp_info[0]->component_id == 82 &&
-		   cinfo.cur_comp_info[1]->component_id == 71 &&
-		   cinfo.cur_comp_info[2]->component_id == 66) { // ASCII "RGB"
-	  colorXform = 0;
+    if (jpeg_read_header(&cinfo, TRUE) != JPEG_SUSPENDED)
+    {
+      // figure out color transform
+      if (colorXform == -1 && !cinfo.saw_Adobe_marker) {
+	if (cinfo.num_components == 3) {
+	  if (cinfo.saw_JFIF_marker) {
+	    colorXform = 1;
+	  } else if (cinfo.cur_comp_info[0]->component_id == 82 &&
+	      cinfo.cur_comp_info[1]->component_id == 71 &&
+	      cinfo.cur_comp_info[2]->component_id == 66) { // ASCII "RGB"
+	    colorXform = 0;
+	  } else {
+	    colorXform = 1;
+	  }
 	} else {
-	  colorXform = 1;
+	  colorXform = 0;
 	}
-      } else {
-        colorXform = 0;
+      } else if (cinfo.saw_Adobe_marker) {
+	colorXform = cinfo.Adobe_transform;
       }
-    } else if (cinfo.saw_Adobe_marker) {
-      colorXform = cinfo.Adobe_transform;
+
+      switch (cinfo.num_components) {
+      case 3:
+	cinfo.jpeg_color_space = colorXform ? JCS_YCbCr : JCS_RGB;
+	break;
+      case 4:
+	cinfo.jpeg_color_space = colorXform ? JCS_YCCK : JCS_CMYK;
+	break;
+      }
+
+      jpeg_start_decompress(&cinfo);
+
+      row_stride = cinfo.output_width * cinfo.output_components;
+      row_buffer = cinfo.mem->alloc_sarray((j_common_ptr) &cinfo, JPOOL_IMAGE, row_stride, 1);
     }
-
-    switch (cinfo.num_components) {
-    case 3:
-	    cinfo.jpeg_color_space = colorXform ? JCS_YCbCr : JCS_RGB;
-	    break;
-    case 4:
-	    cinfo.jpeg_color_space = colorXform ? JCS_YCCK : JCS_CMYK;
-	    break;
-    }
-
-    jpeg_start_decompress(&cinfo);
-
-    row_stride = cinfo.output_width * cinfo.output_components;
-    row_buffer = cinfo.mem->alloc_sarray((j_common_ptr) &cinfo, JPOOL_IMAGE, row_stride, 1);
   }
 }
 
@@ -212,9 +228,11 @@ int DCTStream::getChar() {
   return c;
 }
 
-int DCTStream::getChars(int nChars, Guchar *buffer) {
-  int c;
-  for (int i = 0; i < nChars; ++i) {
+int DCTStream::getChars(int nChars, unsigned char *buffer) {
+  // Use volatile to prevent the compiler optimizing
+  // variables into registers. See setjmp man page.
+  volatile int i, c;
+  for (i = 0; i < nChars; ++i) {
     DO_GET_CHAR
     if (likely(c != EOF)) buffer[i] = c;
     else return i;
@@ -223,7 +241,7 @@ int DCTStream::getChars(int nChars, Guchar *buffer) {
 }
 
 int DCTStream::lookChar() {
-  if (unlikely(current == NULL)) {
+  if (unlikely(current == nullptr)) {
     return EOF;
   }
   return *current;
@@ -233,15 +251,15 @@ GooString *DCTStream::getPSFilter(int psLevel, const char *indent) {
   GooString *s;
 
   if (psLevel < 2) {
-    return NULL;
+    return nullptr;
   }
   if (!(s = str->getPSFilter(psLevel, indent))) {
-    return NULL;
+    return nullptr;
   }
   s->append(indent)->append("<< >> /DCTDecode filter\n");
   return s;
 }
 
-GBool DCTStream::isBinary(GBool last) {
-  return str->isBinary(gTrue);
+bool DCTStream::isBinary(bool last) {
+  return str->isBinary(true);
 }

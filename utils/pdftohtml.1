@@ -43,6 +43,9 @@ generate complex output
 .B \-s
 generate single HTML that includes all pages
 .TP
+.B \-dataurls
+use data URLs instead of external images in HTML. No available in all platforms
+.TP
 .B \-i
 ignore images
 .TP
@@ -58,6 +61,9 @@ zoom the PDF document (default 1.5)
 .B \-xml
 output for XML post-processing
 .TP
+.B \-noRoundedCoordinates
+do not round coordinates (with XML output only)
+.TP
 .B \-enc <string>
 output text encoding name
 .TP
@@ -70,7 +76,7 @@ user password (for encrypted files)
 .B \-hidden
 force hidden text extraction
 .TP
-3.B \-fmt
+.B \-fmt
 image file format for Splash output (png or jpg).
 If complex is selected, but \-fmt is not specified,
 \-fmt png will be assumed
@@ -105,3 +111,6 @@ for the Debian GNU/Linux system (but may be used by others).
 .BR pdftoppm (1),
 .BR pdftops (1),
 .BR pdftotext (1)
+.BR pdfseparate (1),
+.BR pdfsig (1),
+.BR pdfunite (1)
